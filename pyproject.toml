@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roundtable-ai"
+dynamic = ["version"]
+description = "Let several AI models (Claude, GPT and more) plan, build and review one project together, each in its own chat, with no API keys."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Roundtable contributors" }]
+keywords = ["mcp", "ai", "agents", "claude", "codex", "collaboration", "code-review"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+]
+# Runtime has no third-party dependencies on Python 3.11+ (tomli only on 3.10).
+dependencies = ['tomli>=1.1; python_version < "3.11"']
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+# Used only by the integration tests that talk to Roundtable through the official MCP client.
+mcp-tests = ["mcp>=1.2"]
+
+[project.scripts]
+rt = "roundtable_ai.cli:main"
+roundtable = "roundtable_ai.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/OWNER/roundtable"
+Issues = "https://github.com/OWNER/roundtable/issues"
+
+[tool.hatch.version]
+path = "src/roundtable_ai/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/roundtable_ai"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/roundtable_ai", "tests", "docs", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
