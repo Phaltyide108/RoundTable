@@ -108,11 +108,11 @@ def run_doctor(home: str | None = None) -> tuple[str, bool]:
                         r.ok(f"{label}: working copy {wt} on {b}")
             elif gitops.uses_worktrees(ctx) and "build" in (s["roles"] or ""):
                 r.fail(f"{label}: no working copy", f"rt seat worktree {s['handle']}")
-            need = {"claude-code": "claude", "codex-cli": "codex"}.get(s["app"])
-            if need and not shutil.which(need):
-                from .launch import INSTALL_HINT
+            from . import apps as apps_mod
 
-                r.warn(f"{label}: `{need}` not found on PATH", INSTALL_HINT[need])
+            app = apps_mod.get(s["app"])
+            if app.binary and not shutil.which(app.binary):
+                r.warn(f"{label}: `{app.binary}` not found on PATH", f"install it: {app.install}" if app.install else "install it and sign in once")
         if gitops.is_git(ctx):
             hook = None
             try:

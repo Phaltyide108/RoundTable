@@ -92,7 +92,7 @@ def digest(ctx, handle: str, move_bookmark: bool = True, full: bool = False) -> 
     if current:
         lines.append("your tasks: " + ", ".join(f"{t['id']} {t['status']}" for t in current))
     ready = ctx.db.all(
-        "SELECT t.id, t.owner, s.status AS os FROM tasks t LEFT JOIN seats s ON s.handle = t.owner WHERE t.status = 'ready' ORDER BY t.seq, t.id"
+        "SELECT t.id, t.owner, s.status AS os FROM tasks t LEFT JOIN seats s ON s.handle = t.owner WHERE t.status = 'ready' ORDER BY t.priority, t.seq, t.id"
     )
     if "build" in (seat["roles"] or ""):
         claimable = [r["id"] for r in ready if r["owner"] == handle] + [r["id"] for r in ready if r["owner"] is None or (r["owner"] != handle and r["os"] != "active")]

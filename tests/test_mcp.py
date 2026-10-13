@@ -59,7 +59,7 @@ def test_bad_json_batch_and_unknown(project):
 def test_tools_list_schema(project):
     r = rpc([INIT, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}], {"RT_HOME": str(project.home)})
     tools = r[1]["result"]["tools"]
-    assert [t["name"] for t in tools] == ["rt_sync", "rt_plan", "rt_task", "rt_lease", "rt_review", "rt_suggest", "rt_alert", "rt_vote"]
+    assert [t["name"] for t in tools] == ["rt_sync", "rt_plan", "rt_task", "rt_lease", "rt_review", "rt_suggest", "rt_alert", "rt_vote", "rt_memory"]
     for t in tools:
         s = t["inputSchema"]
         assert s["type"] == "object" and "action" in s["properties"]
@@ -100,7 +100,7 @@ def test_pinned_seat_and_json_format(project):
 
 def test_server_starts_without_project(tmp_path):
     r = rpc([INIT, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, call("rt_sync", {"join": "opus"}, 3)], cwd=tmp_path)
-    assert len(r[1]["result"]["tools"]) == 8
+    assert len(r[1]["result"]["tools"]) == 9
     out = r[2]["result"]
     assert out["isError"] and "not inside a Roundtable project" in out["content"][0]["text"]
 

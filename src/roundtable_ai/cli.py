@@ -13,8 +13,10 @@ import os
 import sys
 from typing import Any
 
+from . import apps as apps_mod
 from . import __version__
 from .errors import INTERNAL, RTError
+from .tasks import KINDS
 
 GETTING_STARTED = """Roundtable {version}: several AI models plan, build and review one project together.
 
@@ -53,6 +55,12 @@ def _parse_kv(items: list[str]) -> dict[str, Any]:
     return out
 
 
+def _csv(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    return [x.strip() for x in value.split(",") if x.strip()]
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="rt", description="Roundtable: AI models planning, building and reviewing one project together.")
     p.add_argument("--version", action="version", version=f"roundtable {__version__}")
@@ -76,7 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = seat.add_parser("add", help="register a model as a seat")
     s.add_argument("handle")
     s.add_argument("--model", required=True, help="model id the app understands, e.g. claude-opus-5-5")
-    s.add_argument("--app", required=True, choices=["claude-code", "claude-app", "codex-cli", "codex-app", "other"])
+    s.add_argument("--app", required=True, choices=list(apps_mod.APPS),
+                   help="; ".join(f"{k}: {a.label}" for k, a in apps_mod.APPS.items()))
     s.add_argument("--company", help="anthropic, openai, google ... (guessed when omitted)")
     s.add_argument("--roles", help="comma list of plan,build,review (default all)")
     s.add_argument("--no-worktree", action="store_true", help="no separate working copy")
@@ -115,6 +124,57 @@ def build_parser() -> argparse.ArgumentParser:
     s = task.add_parser("review-level", help="set one task's review depth")
     s.add_argument("task")
     s.add_argument("level", choices=["low", "mid", "high", "default"])
+    s = task.add_parser("list", help="list tasks, most urgent first")
+    s.add_argument("--status", help="backlog, open, ready, working, review, done, all")
+    s.add_argument("--kind", choices=list(KINDS))
+    s.add_argument("--label")
+    s.add_argument("--priority", type=int, choices=range(5), help="this priority or more urgent (0 urgent .. 4 someday)")
+    s.add_argument("--owner")
+    s.add_argument("--limit", type=int, default=30)
+    s = task.add_parser("file", help="add work to the backlog (ready at once if you give files and a test command)")
+    s.add_argument("title")
+    s.add_argument("--kind", choices=list(KINDS), default="task")
+    s.add_argument("--priority", type=int, choices=range(5), default=2)
+    s.add_argument("--summary")
+    s.add_argument("--files", help="comma list")
+    s.add_argument("--proof", action="append", help="test command (repeatable)")
+    s.add_argument("--parent", help="epic task id")
+    s.add_argument("--labels", help="comma list")
+    s = task.add_parser("accept", help="turn a backlog item into work")
+    s.add_argument("task")
+    s.add_argument("--files", help="comma list (default: as filed)")
+    s.add_argument("--proof", action="append", help="test command (repeatable; default: as filed)")
+    s.add_argument("--owner")
+    s.add_argument("--priority", type=int, choices=range(5))
+    s = task.add_parser("edit", help="change title, kind, priority, labels, summary, files or test command")
+    s.add_argument("task")
+    s.add_argument("--title")
+    s.add_argument("--kind", choices=list(KINDS))
+    s.add_argument("--priority", type=int, choices=range(5))
+    s.add_argument("--labels", help="comma list (replaces)")
+    s.add_argument("--summary")
+    s.add_argument("--files", help="comma list")
+    s.add_argument("--proof", action="append", help="test command (repeatable)")
+    s = task.add_parser("link", help="TASK waits_for|related|discovered_from|parent OTHER")
+    s.add_argument("task")
+    s.add_argument("relation", choices=["waits_for", "related", "discovered_from", "parent"])
+    s.add_argument("other")
+    s.add_argument("--remove", action="store_true")
+
+    mem = sub.add_parser("memory", help="project memory every model sees when it joins").add_subparsers(dest="sub", metavar="action")
+    s = mem.add_parser("add", help="remember something (yours are pinned)")
+    s.add_argument("text")
+    s.add_argument("--tags", help="comma list")
+    s = mem.add_parser("list", help="show project memory")
+    s.add_argument("query", nargs="?")
+    s.add_argument("--all", action="store_true")
+    s = mem.add_parser("forget", help="forget a note")
+    s.add_argument("id")
+    s.add_argument("--reason")
+    mem.add_parser("pin", help="pin a note").add_argument("id")
+    mem.add_parser("unpin", help="unpin a note").add_argument("id")
+    s = sub.add_parser("compact", help="shrink history of work finished long ago")
+    s.add_argument("--days", type=int)
 
     review = sub.add_parser("review", help="reviews assigned to you (the human)").add_subparsers(dest="sub", metavar="action")
     review.add_parser("queue", help="reviews waiting for you")
@@ -163,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("usage", help="context, tokens and 5h/7d limits per seat, plus Roundtable's own token cost")
 
     s = sub.add_parser("setup", help="connect an app to this project")
-    s.add_argument("app", choices=["claude-code", "claude-app", "codex"])
+    s.add_argument("app", choices=["claude-code", "claude-app", "codex", "copilot"])
     s.add_argument("--dry-run", action="store_true", help="show what would change")
     s.add_argument("--remove", action="store_true", help="remove Roundtable's entry")
 
@@ -227,6 +287,32 @@ def _route(args) -> tuple[str, dict[str, Any]] | None:
             return "task.merge", {"task": args.task}
         if s == "review-level":
             return "task.set_review", {"task": args.task, "level": args.level}
+        if s == "list":
+            return "task.list", {"status": args.status, "kind": args.kind, "label": args.label, "priority": args.priority,
+                                 "owner": args.owner, "limit": args.limit}
+        if s == "file":
+            return "task.file", {"title": args.title, "kind": args.kind, "priority": args.priority, "summary": args.summary,
+                                 "files": _csv(args.files), "proof": args.proof, "parent": args.parent, "labels": _csv(args.labels)}
+        if s == "accept":
+            return "task.accept", {"task": args.task, "files": _csv(args.files), "proof": args.proof, "owner": args.owner,
+                                   "priority": args.priority}
+        if s == "edit":
+            return "task.edit", {"task": args.task, "title": args.title, "kind": args.kind, "priority": args.priority,
+                                 "labels": _csv(args.labels) if args.labels is not None else None, "summary": args.summary,
+                                 "files": _csv(args.files), "proof": args.proof}
+        if s == "link":
+            return "task.link", {"task": args.task, "relation": args.relation, "other": args.other, "remove": args.remove}
+    if c == "memory":
+        if s == "add":
+            return "memory.add", {"text": args.text, "tags": _csv(args.tags)}
+        if s == "list":
+            return "memory.list", {"query": args.query, "all": args.all}
+        if s == "forget":
+            return "memory.forget", {"id": args.id, "reason": args.reason}
+        if s in ("pin", "unpin"):
+            return "memory.pin", {"id": args.id, "pinned": s == "pin"}
+    if c == "compact":
+        return "admin.compact", {"days": args.days}
     if c == "review":
         if s == "queue":
             return "review.queue", {}

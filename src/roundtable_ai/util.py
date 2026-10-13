@@ -46,6 +46,11 @@ def add_seconds(value: str, seconds: float) -> str:
     return (parse_time(value) + timedelta(seconds=seconds)).strftime(_FMT)
 
 
+def ago_iso(seconds: float) -> str:
+    """The UTC timestamp `seconds` ago, in the stored format (sorts correctly as text)."""
+    return add_seconds(now(), -seconds)
+
+
 def local_hm(value: str | None) -> str:
     """'14:39' in the computer's local time zone."""
     if not value:

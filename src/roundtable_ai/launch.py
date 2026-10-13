@@ -18,12 +18,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import apps as apps_mod
 from . import appsetup, seats as seats_mod
 from .config import toml_value
 from .errors import CONFLICT, INVALID, NOT_FOUND, STATE, RTError
 
 INSTALL_HINT = {
-    "claude": "install Claude Code (see https://docs.claude.com/claude-code), then run `claude` once to sign in",
+    "claude": "install Claude Code: curl -fsSL https://claude.ai/install.sh | bash (Windows: irm https://claude.ai/install.ps1 | iex), then run `claude` once to sign in",
     "codex": "install Codex CLI: npm install -g @openai/codex, then run `codex` once to sign in",
 }
 
@@ -99,24 +100,59 @@ def command_for(ctx, seat_row, prompt: str | None = None, *, headless: bool = Fa
                   "open that app yourself (rt launch shows the steps)")
 
 
+def terminal_argv(ctx, handle: str) -> list[str]:
+    """What a terminal window runs to start this seat (no dependence on PATH)."""
+    return [sys.executable, "-m", "roundtable_ai", "--home", str(ctx.home), "launch", handle]
+
+
+def start_info(ctx, row) -> dict:
+    """How this seat's chat is started, as data for the dashboard and text for the CLI."""
+    from . import apps
+
+    h, app = row["handle"], apps.get(row["app"])
+    folder = row["worktree"] or str(ctx.root)
+    join = f"join Roundtable as {h}"
+    info = {"kind": app.start, "folder": folder, "join": join, "connect": app.connect, "steps": []}
+    if app.start == "terminal":
+        info["command"] = f"rt launch {h}"
+        info["steps"] = [f"Run in a terminal: rt launch {h}"]
+        if row["app"] not in apps.FLAGGED:
+            if app.connect:
+                info["steps"].insert(0, f"Run once: rt setup {app.connect}")
+            info["steps"].append(f"When it is ready, send: {join}")
+        info["steps"].append("Allow the roundtable tools when the app asks.")
+    elif app.start == "vscode":
+        product = "Claude Code" if row["app"] == "claude-vscode" else "Codex"
+        info["steps"] = [f"Open this folder in VS Code: {folder}",
+                         *(["Run once: rt setup codex, then restart VS Code"] if app.connect else []),
+                         f"Open the {product} panel and send: {join}",
+                         "Allow the roundtable tools when it asks."]
+    elif app.start == "editor":
+        info["steps"] = [f"Open this folder in {app.label.replace(' editor', '')}: {folder}",
+                         f"In its agent chat, send: {join}",
+                         "Allow the roundtable tools when it asks."]
+    elif row["app"] == "claude-app":
+        info["steps"] = ["Run once: rt setup claude-app, then restart the Claude app",
+                         f"Start a new chat and send: {join}",
+                         "Ask it to check Roundtable whenever you want it to catch up."]
+    elif row["app"] == "codex-app":
+        info["steps"] = ["Run once: rt setup codex, then restart the ChatGPT app",
+                         f"Switch to Codex mode and open this folder: {folder}",
+                         f"Send: {join}"]
+    else:
+        info["steps"] = [f"Add an MCP server to the app: command {sys.executable}, arguments -m roundtable_ai mcp, "
+                         f"environment RT_HOME={ctx.home} and RT_SEAT={h}",
+                         f"Open {folder} in the app and send: {join}"]
+    return info
+
+
 def _manual_steps(ctx, row) -> str:
-    h = row["handle"]
-    if row["app"] == "claude-app":
-        return "\n".join([
-            f"seat {h} runs in the Claude desktop app:",
-            "  1. rt setup claude-app   (once per project), then restart the Claude app",
-            f"  2. start a new chat and say: join Roundtable as {h}",
-            "  3. in that chat, ask it to check Roundtable whenever you want it to catch up",
-        ])
-    if row["app"] == "codex-app":
-        where = row["worktree"] or str(ctx.root)
-        return "\n".join([
-            f"seat {h} runs in the ChatGPT desktop app (Codex mode):",
-            "  1. rt setup codex   (once per project), then restart the ChatGPT app",
-            f"  2. switch to Codex mode and open this folder: {where}",
-            f"  3. say: join Roundtable as {h}",
-        ])
-    return f"seat {h} uses app '{row['app']}': connect it to the MCP server `{sys.executable} -m roundtable_ai mcp` with RT_HOME={ctx.home} and RT_SEAT={h}"
+    from . import apps
+
+    info = start_info(ctx, row)
+    lines = [f"seat {row['handle']} runs in {apps.label(row['app'])}:"]
+    lines += [f"  {i}. {step}" for i, step in enumerate(info["steps"], 1)]
+    return "\n".join(lines)
 
 
 def _show(cmd: list[str]) -> str:
@@ -134,13 +170,24 @@ def launch(handle: str, *, home: str | None = None, print_only: bool = False) ->
         row = seats_mod.get(ctx, util.check_handle(handle))
         if row["status"] != "active":
             raise RTError(STATE, f"seat {row['handle']} is {row['status']}", f"rt seat resume {row['handle']}")
-        if row["app"] in ("claude-app", "codex-app", "other"):
+        app = apps_mod.get(row["app"])
+        if app.folder and row["worktree"]:
+            appsetup.seat_folder_config(ctx, row["handle"])
+        if app.start != "terminal":
             print(_manual_steps(ctx, row))
             return 0
         if seats_mod.is_live(ctx, row) and not print_only:
             raise RTError(CONFLICT, f"seat {row['handle']} is already live in another chat",
                           f"use that chat, or if it is closed: rt seat release {row['handle']}")
-        cmd, cwd = command_for(ctx, row)
+        if row["app"] in apps_mod.FLAGGED:
+            cmd, cwd = command_for(ctx, row)
+        else:
+            exe = shutil.which(app.binary or "")
+            if not exe:
+                raise RTError(NOT_FOUND, f"`{app.binary}` is not installed or not on PATH",
+                              f"install it ({app.install or 'see its website'}), open a new terminal, then try again")
+            cmd, cwd = [exe], _workdir(ctx, row)
+            print(f"when {app.label.replace(' in a terminal', '')} is ready, send it: join Roundtable as {row['handle']}")
         env = dict(os.environ)
         env.update({"RT_SEAT": row["handle"], "RT_HOME": str(ctx.home)})
     finally:

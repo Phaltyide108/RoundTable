@@ -140,6 +140,103 @@ def seat_mcp_file(ctx, handle: str) -> Path:
     return path
 
 
+def _folder_entry(rel: str, home: Path, handle: str) -> tuple[str, dict]:
+    """(top-level key, entry) for a per-seat settings file, by app format."""
+    cmd, args = server_command()
+    env = {"RT_HOME": str(home), "RT_SEAT": handle}
+    if rel == "opencode.json":
+        return "mcp", {"type": "local", "command": [cmd, *args], "environment": env, "enabled": True}
+    if rel == ".cursor/mcp.json":
+        return "mcpServers", {"type": "stdio", "command": cmd, "args": args, "env": env}
+    if rel in (".gemini/settings.json", ".qwen/settings.json"):
+        return "mcpServers", {"command": cmd, "args": args, "env": env, "timeout": 120000, "trust": False}
+    return "mcpServers", entry(home, handle, stdio_type=True)
+
+
+def seat_folder_config(ctx, handle: str) -> str:
+    """Write this seat's settings file into its working copy, so the app opened
+    there connects to Roundtable already bound to the seat (no join step).
+
+    Kept out of git with the repository's info/exclude, so it never shows as a
+    change. If the project already tracks that file, nothing is written
+    (changing it would dirty the working copy) and the reply says what to do.
+    """
+    from . import apps, gitops, seats
+
+    row = seats.get(ctx, handle)
+    rel = apps.get(row["app"]).folder
+    if not rel:
+        return f"{apps.label(row['app'])} needs no per-seat settings file"
+    if not row["worktree"] or not Path(row["worktree"]).exists():
+        raise RTError(INVALID, f"{handle} has no working copy", f"rt seat worktree {handle}")
+    wt = Path(row["worktree"])
+    if gitops.run(wt, "ls-files", "--error-unmatch", rel).returncode == 0:
+        return (f"{rel} is tracked by git in this project, so Roundtable left it alone. Add an MCP server named roundtable by hand: "
+                f'command "{sys.executable}", arguments -m roundtable_ai mcp, environment RT_HOME={ctx.home} RT_SEAT={handle}')
+    key, value = _folder_entry(rel, ctx.home, handle)
+    path = wt / rel
+    if key == "mcpServers":
+        msg = merge_json(path, "roundtable", value, dry_run=False)
+    else:
+        data = _load_json(path)
+        section = data.get(key) if isinstance(data.get(key), dict) else {}
+        if section.get("roundtable") == value:
+            msg = f"{path}: 'roundtable' is already up to date"
+        else:
+            section["roundtable"] = value
+            data.setdefault("$schema", "https://opencode.ai/config.json")
+            data[key] = section
+            _backup(path)
+            _atomic_write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+            msg = f"wrote 'roundtable' into {path}"
+    common = gitops.run(wt, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+    if common:
+        exclude = Path(common) / "info" / "exclude"
+        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        line = "/" + rel
+        if line not in text.splitlines():
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            with open(exclude, "a", encoding="utf-8") as fh:
+                fh.write(("" if not text or text.endswith("\n") else "\n") + f"# Roundtable: per-seat settings in working copies\n{line}\n")
+    return msg
+
+
+def seat_folder_mcp(ctx, handle: str) -> str:  # kept for older callers
+    return seat_folder_config(ctx, handle)
+
+
+def copilot_config() -> Path:
+    base = os.environ.get("COPILOT_HOME")
+    return (Path(base) if base else Path.home() / ".copilot") / "mcp-config.json"
+
+
+def connected(ctx) -> dict[str, bool]:
+    """Which apps already have this project's Roundtable entry (quick check, no repairs)."""
+    out = {"claude-code": False, "claude-app": False, "codex": False, "copilot": False}
+    try:
+        data = _load_json(ctx.root / ".mcp.json")
+        out["claude-code"] = "roundtable" in (data.get("mcpServers") or {})
+    except RTError:
+        pass
+    try:
+        data = _load_json(claude_desktop_config())
+        out["claude-app"] = server_name(ctx) in (data.get("mcpServers") or {})
+    except RTError:
+        pass
+    try:
+        data = _load_json(copilot_config())
+        out["copilot"] = server_name(ctx) in (data.get("mcpServers") or {})
+    except RTError:
+        pass
+    try:
+        path = codex_config()
+        if path.exists():
+            out["codex"] = server_name(ctx) in (tomllib.loads(path.read_text(encoding="utf-8")).get("mcp_servers") or {})
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
+    return out
+
+
 _HEADER = re.compile(r"^\s*\[\s*(.+?)\s*\]\s*(#.*)?$")
 
 
@@ -260,8 +357,14 @@ def setup(app: str, *, home: str | None = None, dry_run: bool = False, remove: b
             if not remove:
                 lines.append("This one entry serves Codex CLI, the Codex VS Code extension and the ChatGPT desktop app's Codex mode.")
                 lines.append("Restart them, open the seat's working copy folder, and say: join Roundtable as <seat name>.")
+        elif app == "copilot":
+            cmd, args = server_command()
+            value = {"type": "local", "command": cmd, "args": args, "env": {"RT_HOME": str(ctx.home)}, "tools": ["*"]}
+            lines.append(merge_json(copilot_config(), server_name(ctx), None if remove else value, dry_run=dry_run))
+            if not remove:
+                lines.append("Restart Copilot CLI in the seat's working copy folder and say: join Roundtable as <seat name>.")
         else:
-            raise RTError(INVALID, f"unknown app {app!r}", "use claude-code, claude-app or codex")
+            raise RTError(INVALID, f"unknown app {app!r}", "use claude-code, claude-app, codex or copilot")
         return "\n".join(lines)
     finally:
         ctx.close()

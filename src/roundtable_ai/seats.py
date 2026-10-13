@@ -15,20 +15,35 @@ from .context import HUMAN, SYSTEM
 from .errors import CONFLICT, FORBIDDEN, INVALID, NEED_JOIN, NOT_FOUND, STATE, RTError
 from .registry import ANY, HUMAN as WHO_HUMAN, Param, Result, op
 
-APPS = ("claude-code", "claude-app", "codex-cli", "codex-app", "other")
-CODING_APPS = ("claude-code", "codex-cli", "codex-app", "other")
+from . import apps as apps_mod
+
+APPS = tuple(apps_mod.APPS)
+CODING_APPS = tuple(k for k, a in apps_mod.APPS.items() if a.coding)
 ROLES = ("plan", "build", "review")
 RESERVED = {HUMAN, SYSTEM, "all", "everyone", "any", "none", "me"}
 
 
 def company_for(app: str, model: str) -> str | None:
     m = (model or "").lower()
-    if app in ("claude-code", "claude-app") or m.startswith("claude") or any(x in m for x in ("opus", "sonnet", "haiku", "fable", "mythos")):
+    implied = apps_mod.APPS[app].company if app in apps_mod.APPS else None
+    if implied:
+        return implied
+    if m.startswith("claude") or any(x in m for x in ("opus", "sonnet", "haiku", "fable", "mythos")):
         return "anthropic"
-    if app in ("codex-cli", "codex-app") or m.startswith(("gpt", "o1", "o3", "o4", "codex")):
+    if m.startswith(("gpt", "o1", "o3", "o4", "codex")):
         return "openai"
-    if m.startswith("gemini"):
+    if m.startswith("gemini") or "/gemini" in m:
         return "google"
+    if m.startswith("qwen") or "/qwen" in m:
+        return "alibaba"
+    if "/claude" in m or m.startswith("anthropic/"):
+        return "anthropic"
+    if "/gpt" in m or m.startswith("openai/"):
+        return "openai"
+    if m.startswith("grok") or m.startswith("xai/"):
+        return "xai"
+    if m.startswith(("deepseek", "deepseek/")):
+        return "deepseek"
     return None
 
 
@@ -141,11 +156,16 @@ def add(ctx, handle, model, app, company=None, roles=None, worktree=None) -> Res
 
             path, branch = gitops.ensure_worktree(ctx, handle)
             lines.append(f"working copy: {path} (branch {branch})")
+            if apps_mod.get(app).folder:
+                from . import appsetup
+
+                lines.append(appsetup.seat_folder_config(ctx, handle))
         except RTError as exc:
             lines.append(f"no working copy yet: {exc.message}")
             if exc.hint:
                 lines.append(f"next: {exc.hint}")
-    lines.append(f"next: rt launch {handle}  (or open the app and say: join Roundtable as {handle})")
+    lines.append(f"next: rt launch {handle}  (or open the app and say: join Roundtable as {handle})"
+                 if apps_mod.get(app).start == "terminal" else f"next: rt launch {handle} shows how to start it")
     lines.extend(ctx.notes)
     ctx.notes.clear()
     return Result("\n".join(lines), {"handle": handle, "company": company, "roles": roles})
@@ -275,14 +295,20 @@ def join(ctx, handle) -> Result:
         )
         events.emit(ctx, "seat.joined", f"{handle} joined from {ctx.client}", ref=handle, actor=handle)
     others = [r["handle"] for r in active(ctx) if r["handle"] != handle]
-    text = rules.card(handle, key, worktree=row["worktree"], review_level=ctx.setting("review", "level"), others=others)
+    from . import memory
+
+    text = rules.card(handle, key, worktree=row["worktree"], review_level=ctx.setting("review", "level"), others=others,
+                      memory=memory.join_lines(ctx, handle))
     return Result(text, {"handle": handle, "key": key, "worktree": row["worktree"]})
 
 
 def pinned_card(ctx, handle: str) -> str:
     row = get(ctx, handle)
     others = [r["handle"] for r in active(ctx) if r["handle"] != handle]
-    return rules.card(handle, None, worktree=row["worktree"], review_level=ctx.setting("review", "level"), others=others)
+    from . import memory
+
+    return rules.card(handle, None, worktree=row["worktree"], review_level=ctx.setting("review", "level"), others=others,
+                      memory=memory.join_lines(ctx, handle))
 
 
 def seat_summary(row) -> dict[str, Any]:

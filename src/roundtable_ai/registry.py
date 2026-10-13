@@ -177,4 +177,5 @@ MODULES = (
     "votes",
     "admin",
     "usage",
+    "memory",
 )

@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import BUSY, NOT_INITIALIZED, VERSION, RTError
-from .schema import SCHEMA_V1, SCHEMA_VERSION
+from .schema import MIGRATION_1_TO_2, SCHEMA_V1, SCHEMA_VERSION
 
 BUSY_TIMEOUT_MS = 10_000
 
 # Forward-only migrations: {from_version: sql_script}. Version 1 is the base.
-MIGRATIONS: dict[int, str] = {}
+MIGRATIONS: dict[int, str] = {1: MIGRATION_1_TO_2}
 
 # Extra CREATE TABLE IF NOT EXISTS statements registered by modules
 # (applied on every open; must be idempotent).
@@ -68,6 +68,9 @@ class Store:
         with store.tx():
             for stmt in _split_sql(SCHEMA_V1):
                 store.conn.execute(stmt)
+            for v in range(1, SCHEMA_VERSION):
+                for stmt in _split_sql(MIGRATIONS.get(v, "")):
+                    store.conn.execute(stmt)
             for extra in _EXTRA_SCHEMA:
                 for stmt in _split_sql(extra):
                     store.conn.execute(stmt)

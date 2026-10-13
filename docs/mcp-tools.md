@@ -32,7 +32,7 @@ Plan together: blind drafts, critique, propose, approve or object, amendments to
 
 ## rt_task
 
-Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable runs the proof), show, now.
+Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable runs the proof), show, now. file: put a bug or missing work you found into the human's backlog.
 
 | Action | Parameters | What it does |
 | --- | --- | --- |
@@ -42,6 +42,9 @@ Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable 
 | `close` | `task` text<br>`summary` text<br>`commit` (optional) true/false | Finish: Roundtable runs the task's proof, then review |
 | `show` | `task` text<br>`zoom` (optional) text: L0 / L1 / L2 | Read a task at zoom L0, L1 or L2 |
 | `now` | `text` text | Set your one-line 'now doing' (others see it) |
+| `file` | `title` text<br>`kind` (optional) text: task / feature / bug / chore / docs / test / epic<br>`priority` (optional) number<br>`summary` (optional) text<br>`files` (optional) list of text<br>`proof` (optional) list of text<br>`found_in` (optional) text<br>`parent` (optional) text<br>`labels` (optional) list of text | File work you found outside your task (a bug, a missing test...). It goes to the human's backlog; keep doing your own task |
+| `link` | `task` text<br>`relation` text: waits_for / related / discovered_from / parent<br>`other` text<br>`remove` (optional) true/false | Link two tasks: related or discovered_from (anyone); waits_for or parent (the human) |
+| `list` | `status` (optional) text<br>`kind` (optional) text: task / feature / bug / chore / docs / test / epic<br>`label` (optional) text<br>`priority` (optional) number<br>`owner` (optional) text<br>`limit` (optional) number | List tasks, most urgent first |
 
 ## rt_lease
 
@@ -96,4 +99,14 @@ Settle stuck decisions by vote; every ballot needs a reason.
 | `open` | `topic` text<br>`options` list of text<br>`voters` (optional) list of text | Put a stuck decision to all seats |
 | `cast` | `id` text<br>`choice` text<br>`reason` text | Vote, with your reason (your argument) |
 | `show` | `id` (optional) text | Read a vote and the arguments |
+
+## rt_memory
+
+Project memory that outlives chats: add a convention, decision or gotcha; list; forget what no longer holds.
+
+| Action | Parameters | What it does |
+| --- | --- | --- |
+| `add` | `text` text<br>`tags` (optional) list of text | Remember something every seat should know in later sessions: a convention, a decision, a gotcha |
+| `list` | `query` (optional) text<br>`all` (optional) true/false | Project memory, pinned first |
+| `forget` | `id` text<br>`reason` (optional) text | Forget a note that is wrong or outdated (yours; the human can forget any) |
 

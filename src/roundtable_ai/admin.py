@@ -93,3 +93,42 @@ def log(ctx, since=None, limit=50, task=None) -> Result:
         return Result("no events")
     return Result("\n".join(f"#{e['id']} {util.local_hm(e['at'])} {e['actor']:<8} {e['text']}" for e in rows),
                   {"events": [dict(e) for e in rows]})
+
+
+CHATTER = ("task.checkpoint", "task.claimed", "task.proving", "task.ready", "review.assigned", "lease.released", "seat.joined")
+
+
+@op("admin.compact", who=HUMAN, desc="Shrink old history: keep each finished task's outcome, drop step-by-step detail",
+    params=[Param("days", type="int", desc="only work finished more than this many days ago (default: history.keep_days)")])
+def compact(ctx, days=None) -> Result:
+    import os
+
+    keep = int(days if days not in (None, "") else ctx.setting("history", "keep_days"))
+    if keep < 0:
+        raise RTError(INVALID, "days cannot be negative")
+    cutoff = util.ago_iso(keep * 86400)
+    db_file = ctx.db.path
+    before = os.path.getsize(db_file) if db_file.exists() else 0
+    with ctx.tx():
+        old = [r["id"] for r in ctx.db.all("SELECT id FROM tasks WHERE status IN ('done','cancelled') AND updated_at < ?", (cutoff,))]
+        removed = {"events": 0, "checkpoints": 0, "proof outputs": 0}
+        for tid in old:
+            cur = ctx.db.execute(f"DELETE FROM events WHERE task = ? AND type IN ({','.join('?' * len(CHATTER))})", (tid, *CHATTER))
+            removed["events"] += cur.rowcount or 0
+            last = ctx.db.one("SELECT id FROM checkpoints WHERE task = ? ORDER BY at DESC LIMIT 1", (tid,))
+            if last:
+                cur = ctx.db.execute("DELETE FROM checkpoints WHERE task = ? AND id != ?", (tid, last["id"]))
+                removed["checkpoints"] += cur.rowcount or 0
+            cur = ctx.db.execute("UPDATE proof_runs SET output_tail = NULL WHERE task = ? AND output_tail IS NOT NULL AND status = 'passed'", (tid,))
+            removed["proof outputs"] += cur.rowcount or 0
+        cur = ctx.db.execute(f"DELETE FROM events WHERE task IS NULL AND at < ? AND type IN ({','.join('?' * len(CHATTER))})", (cutoff, *CHATTER))
+        removed["events"] += cur.rowcount or 0
+        events.emit(ctx, "human.compact", f"the human compacted history of {len(old)} finished task(s) older than {keep} days")
+    try:
+        ctx.db.conn.execute("VACUUM")
+    except Exception:  # another process holds the database: space is reclaimed next time
+        pass
+    after = os.path.getsize(db_file) if db_file.exists() else 0
+    parts = ", ".join(f"{n} {k}" for k, n in removed.items())
+    return Result(f"compacted {len(old)} finished task(s): removed {parts}; database {before // 1024} KB -> {after // 1024} KB",
+                  {"tasks": old, "removed": removed, "kb_before": before // 1024, "kb_after": after // 1024})

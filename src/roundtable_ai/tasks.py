@@ -15,7 +15,9 @@ from . import events, fmt, util
 from .errors import CONFLICT, FORBIDDEN, INVALID, NOT_FOUND, STATE, RTError
 from .registry import ANY, HUMAN, Param, Result, op
 
-STATUSES = ("open", "ready", "claimed", "proving", "in_review", "changes_requested", "merge_blocked", "done", "cancelled")
+STATUSES = ("backlog", "open", "ready", "claimed", "proving", "in_review", "changes_requested", "merge_blocked", "done", "cancelled")
+KINDS = ("task", "feature", "bug", "chore", "docs", "test", "epic")
+PRIORITIES = (0, 1, 2, 3, 4)  # 0 urgent, 1 high, 2 normal, 3 low, 4 someday
 WORKING = ("claimed", "changes_requested")
 LIVE = ("claimed", "proving", "in_review", "changes_requested", "merge_blocked")
 MAX_TASKS = 60
@@ -40,6 +42,43 @@ def get(ctx, task_id):
 
 def deps_of(ctx, task_id: str) -> list[str]:
     return [r["depends_on"] for r in ctx.db.all("SELECT depends_on FROM deps WHERE task = ? AND kind = 'blocks'", (task_id,))]
+
+
+def check_kind(value, where: str = "kind") -> str:
+    kind = str(value or "task").strip().lower()
+    if kind not in KINDS:
+        raise RTError(INVALID, f"{where} must be one of {', '.join(KINDS)} (got {value!r})")
+    return kind
+
+
+def check_priority(value, where: str = "priority") -> int:
+    if value in (None, ""):
+        return 2
+    try:
+        p = int(str(value).strip().upper().lstrip("P"))
+    except ValueError:
+        raise RTError(INVALID, f"{where} must be 0-4 (0 urgent, 2 normal, 4 someday)") from None
+    if p not in PRIORITIES:
+        raise RTError(INVALID, f"{where} must be 0-4 (0 urgent, 2 normal, 4 someday)")
+    return p
+
+
+def check_labels(values, where: str = "labels") -> list[str]:
+    out = []
+    for v in util.as_list(values, where):
+        lab = "-".join(str(v).strip().lower().split())
+        if not lab:
+            continue
+        if len(lab) > 30:
+            raise RTError(INVALID, f"label {lab[:30]}… is too long (30 characters max)")
+        if lab not in out:
+            out.append(lab)
+    if len(out) > 8:
+        raise RTError(INVALID, f"{where}: 8 labels at most")
+    return out
+
+
+ORDER = "priority, seq, id"
 
 
 # ---------------------------------------------------------------- plan -> tasks
@@ -68,11 +107,18 @@ def validate_specs(ctx, specs) -> list[dict]:
         title = util.cap_chars(util.require_text(raw.get("title"), f"{where} title"), title_cap, f"{where} title")
         summary = util.cap_words(util.require_text(raw.get("summary"), f"{where} summary", allow_empty=True), words_cap, f"{where} summary")
         detail = util.cap_chars(util.require_text(raw.get("detail"), f"{where} detail", allow_empty=True), text_cap, f"{where} detail")
+        kind = check_kind(raw.get("kind"), f"{where} kind")
+        priority = check_priority(raw.get("priority"), f"{where} priority")
+        labels = check_labels(raw.get("labels"), f"{where} labels")
         files = [util.norm_path(ctx.root, str(f)) for f in util.as_list(raw.get("files"), f"{where} files")]
-        if not files:
-            raise RTError(INVALID, f"{where} lists no files", "list the files or globs it may edit, e.g. [\"src/auth/**\"]")
         proof = [util.require_text(c, f"{where} proof command") for c in util.as_list(raw.get("proof"), f"{where} proof")]
-        if not proof:
+        if kind == "epic":
+            if files or proof or raw.get("owner"):
+                raise RTError(INVALID, f"{where} is an epic: it groups other tasks and has no files, proof or owner",
+                              'give its tasks "parent": "<this ref>" instead')
+        elif not files:
+            raise RTError(INVALID, f"{where} lists no files", "list the files or globs it may edit, e.g. [\"src/auth/**\"]")
+        elif not proof:
             raise RTError(INVALID, f"{where} has no proof command",
                           'add a command that shows it works, e.g. "pytest tests/test_auth.py" or "npm test"')
         for c in proof:
@@ -86,14 +132,26 @@ def validate_specs(ctx, specs) -> list[dict]:
         if risk not in ("low", "normal", "high"):
             raise RTError(INVALID, f"{where}: risk must be low, normal or high")
         deps = [str(d).strip() for d in util.as_list(raw.get("depends_on"), f"{where} depends_on")]
+        parent = str(raw.get("parent")).strip() if raw.get("parent") not in (None, "") else None
         out.append({"ref": ref, "title": title, "summary": summary, "detail": detail, "files": files,
-                    "proof": proof, "owner": owner, "risk": risk, "depends_on": deps})
+                    "proof": proof, "owner": owner, "risk": risk, "depends_on": deps,
+                    "kind": kind, "priority": priority, "labels": labels, "parent": parent})
+    kinds = {s["ref"]: s["kind"] for s in out}
     for s in out:
         for d in s["depends_on"]:
             if d not in refs:
                 raise RTError(INVALID, f"task {s['ref']} depends on {d!r}, which is not in the plan", f"refs in the plan: {', '.join(sorted(refs))}")
             if d == s["ref"]:
                 raise RTError(INVALID, f"task {s['ref']} depends on itself")
+        if s["parent"] is not None:
+            if s["parent"] not in refs or kinds[s["parent"]] != "epic":
+                raise RTError(INVALID, f"task {s['ref']}: parent {s['parent']!r} must be the ref of an epic in this plan",
+                              'add a task with "kind": "epic" and use its ref as "parent"')
+            if s["kind"] == "epic":
+                raise RTError(INVALID, f"task {s['ref']}: epics cannot be nested")
+    empty = [r for r, k in kinds.items() if k == "epic" and not any(x["parent"] == r for x in out)]
+    if empty:
+        raise RTError(INVALID, f"epic {empty[0]} has no tasks", 'give some tasks "parent": "' + empty[0] + '"')
     cycle = _find_cycle({s["ref"]: s["depends_on"] for s in out})
     if cycle:
         raise RTError(INVALID, "dependency cycle: " + " -> ".join(cycle), "remove one of those dependencies")
@@ -136,11 +194,15 @@ def materialize(ctx, plan_id: int, specs: list[dict]) -> list[str]:
             tid = util.next_id(ctx.db, "task", "T")
             ids[s["ref"]] = tid
             ctx.db.execute(
-                "INSERT INTO tasks(id, plan_id, seq, title, summary, detail, owner, status, risk, files, proof, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?, 'open', ?,?,?,?,?)",
+                "INSERT INTO tasks(id, plan_id, seq, title, summary, detail, owner, status, risk, files, proof, kind, priority, labels, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?, 'open', ?,?,?,?,?,?,?,?)",
                 (tid, plan_id, seq, s["title"], s["summary"], s["detail"], s["owner"], s["risk"],
-                 util.jdump(s["files"]), util.jdump(s["proof"]), now, now),
+                 util.jdump(s["files"]), util.jdump(s["proof"]), s.get("kind", "task"), s.get("priority", 2),
+                 util.jdump(s.get("labels") or []), now, now),
             )
+        for s in specs:
+            if s.get("parent"):
+                ctx.db.execute("UPDATE tasks SET parent = ? WHERE id = ?", (ids[s["parent"]], ids[s["ref"]]))
         for s in specs:
             for d in s["depends_on"]:
                 ctx.db.execute("INSERT OR IGNORE INTO deps(task, depends_on, kind) VALUES (?,?, 'blocks')", (ids[s["ref"]], ids[d]))
@@ -153,7 +215,12 @@ def refresh_ready(ctx) -> list[str]:
     """open -> ready for tasks whose blocking dependencies are all done."""
     changed = []
     with ctx.tx():
-        for t in ctx.db.all("SELECT * FROM tasks WHERE status = 'open' ORDER BY seq, id"):
+        for e in ctx.db.all("SELECT * FROM tasks WHERE status = 'open' AND kind = 'epic'"):
+            kids = ctx.db.all("SELECT status FROM tasks WHERE parent = ?", (e["id"],))
+            if kids and all(k["status"] in ("done", "cancelled") for k in kids) and any(k["status"] == "done" for k in kids):
+                ctx.db.execute("UPDATE tasks SET status = 'done', done_at = ?, updated_at = ? WHERE id = ?", (util.now(), util.now(), e["id"]))
+                events.emit(ctx, "task.done", f"epic {e['id']} done: {util.one_line(e['title'], 70)}", ref=e["id"], task=e["id"])
+        for t in ctx.db.all(f"SELECT * FROM tasks WHERE status = 'open' AND kind != 'epic' ORDER BY {ORDER}"):
             if t["plan_id"] is not None:
                 plan = ctx.db.one("SELECT stage FROM plans WHERE id = ?", (t["plan_id"],))
                 if plan is None or plan["stage"] not in ("locked", "done"):
@@ -227,6 +294,10 @@ def _may_claim(ctx, seat: str, t) -> None:
         return
     if t["status"] == "claimed" and t["owner"] == seat:
         return
+    if t["kind"] == "epic":
+        raise RTError(STATE, f"{t['id']} is an epic: it groups tasks and is done when they are", "claim one of its tasks: rt_task ready")
+    if t["status"] == "backlog":
+        raise RTError(STATE, f"{t['id']} is in the backlog: the human has not accepted it as work yet", "pick a ready task: rt_task ready")
     if t["status"] != "ready":
         who = f" by {t['owner']}" if t["owner"] and t["status"] in LIVE else ""
         if t["status"] != "open":
@@ -243,8 +314,8 @@ def _may_claim(ctx, seat: str, t) -> None:
 @op("task.ready", tool="rt_task", action="ready", desc="Tasks you can claim, and your current ones")
 def ready(ctx) -> Result:
     seat = ctx.actor
-    mine = ctx.db.all(f"SELECT * FROM tasks WHERE owner = ? AND status IN ({','.join('?' * len(LIVE))}) ORDER BY seq, id", (seat, *LIVE))
-    rows = ctx.db.all("SELECT t.*, s.status AS owner_status FROM tasks t LEFT JOIN seats s ON s.handle = t.owner WHERE t.status = 'ready' ORDER BY t.seq, t.id")
+    mine = ctx.db.all(f"SELECT * FROM tasks WHERE owner = ? AND status IN ({','.join('?' * len(LIVE))}) ORDER BY {ORDER}", (seat, *LIVE))
+    rows = ctx.db.all("SELECT t.*, s.status AS owner_status FROM tasks t LEFT JOIN seats s ON s.handle = t.owner WHERE t.status = 'ready' ORDER BY t.priority, t.seq, t.id")
     claimable = [r for r in rows if r["owner"] in (None, seat) or r["owner_status"] != "active"]
     lines = []
     if mine:
@@ -266,7 +337,9 @@ def claim(ctx, task) -> Result:
     from . import alerts, gitops, leases, seats
 
     seat = ctx.actor
-    get(ctx, task)  # unknown task ids get the clearest error first
+    first = get(ctx, task)  # unknown task ids, epics and backlog items get the clearest error first
+    if first["kind"] == "epic" or first["status"] == "backlog":
+        _may_claim(ctx, seat, first)
     srow = seats.get(ctx, seat)
     if "build" not in seats.roles_of(srow):
         raise RTError(FORBIDDEN, f"seat {seat} plans and reviews only (no build role)", "review or suggest instead")
@@ -437,6 +510,19 @@ def show(ctx, task, zoom="L1") -> Result:
         if deps:
             states = {r["id"]: r["status"] for r in ctx.db.all(f"SELECT id, status FROM tasks WHERE id IN ({','.join('?' * len(deps))})", deps)}
             lines.append("depends on: " + ", ".join(f"{d} ({states.get(d, '?')})" for d in deps))
+        links = links_of(ctx, t["id"])
+        data["links"] = links
+        other = [f"{l['kind'].replace('_', ' ')} {l['other']}" for l in links if l["kind"] not in ("waits_for",)]
+        if other:
+            lines.append("links: " + ", ".join(other))
+        labels = util.jload(t["labels"], [])
+        if labels:
+            lines.append("labels: " + ", ".join(labels))
+        if t["parent"]:
+            lines.append(f"part of epic {t['parent']}")
+        kids = ctx.db.all("SELECT id, status FROM tasks WHERE parent = ? ORDER BY priority, seq, id", (t["id"],))
+        if kids:
+            lines.append("tasks in this epic: " + ", ".join(f"{k['id']} ({k['status']})" for k in kids))
         cp = ctx.db.one("SELECT * FROM checkpoints WHERE task = ? ORDER BY at DESC LIMIT 1", (t["id"],))
         if cp:
             lines.append(f"last checkpoint {util.local_hm(cp['at'])}: {cp['l0']}")
@@ -536,3 +622,222 @@ def set_review(ctx, task, level) -> Result:
                        (None if level == "default" else level, util.now(), t["id"]))
         events.emit(ctx, "task.review_level", f"{t['id']} review depth set to {level} by the human", ref=t["id"], task=t["id"])
     return Result(f"{t['id']} review depth: {level}")
+
+
+# ---------------------------------------------------------------- backlog, links, lists (Beads-style tracking)
+
+def links_of(ctx, task_id: str) -> list[dict]:
+    """Every link touching this task, from its point of view."""
+    out = []
+    for r in ctx.db.all("SELECT depends_on, kind FROM deps WHERE task = ?", (task_id,)):
+        out.append({"kind": {"blocks": "waits_for", "discovered_from": "found_while"}.get(r["kind"], r["kind"]), "other": r["depends_on"]})
+    for r in ctx.db.all("SELECT task, kind FROM deps WHERE depends_on = ?", (task_id,)):
+        out.append({"kind": {"blocks": "blocks", "discovered_from": "led_to"}.get(r["kind"], r["kind"]), "other": r["task"]})
+    return out
+
+
+def _norm_title(t: str) -> str:
+    return " ".join("".join(c for c in t.lower() if c.isalnum() or c.isspace()).split())
+
+
+@op("task.file", who=ANY, tool="rt_task", action="file",
+    desc="File work you found outside your task (a bug, a missing test...). It goes to the human's backlog; keep doing your own task",
+    params=[Param("title", required=True, desc="<= 80 characters"),
+            Param("kind", enum=KINDS, default="bug"),
+            Param("priority", type="int", default=2, desc="0 urgent, 1 high, 2 normal, 3 low, 4 someday"),
+            Param("summary", desc="what is wrong or missing, and where (<= 80 words)"),
+            Param("files", type="list", desc="files a fix would touch, if you know"),
+            Param("proof", type="list", desc="a test command that would show it is fixed, if you know"),
+            Param("found_in", desc="the task you were working on when you found it"),
+            Param("parent", desc="an epic this belongs to"),
+            Param("labels", type="list")])
+def file_task(ctx, title, kind="bug", priority=2, summary=None, files=None, proof=None, found_in=None, parent=None, labels=None) -> Result:
+    title = util.cap_chars(util.require_text(title, "title"), ctx.setting("limits", "title_chars"), "title")
+    kind = check_kind(kind)
+    priority = check_priority(priority)
+    labels = check_labels(labels)
+    summary = util.cap_words(util.require_text(summary, "summary", allow_empty=True), ctx.setting("limits", "summary_words"), "summary")
+    files = [util.norm_path(ctx.root, str(f)) for f in util.as_list(files, "files")]
+    proof = [util.cap_chars(util.require_text(c, "proof command"), 500, "proof command") for c in util.as_list(proof, "proof")]
+    human = ctx.actor == "human"
+    with ctx.tx():
+        src = get(ctx, found_in) if found_in else None
+        par = get(ctx, parent) if parent else None
+        if par is not None and par["kind"] != "epic":
+            raise RTError(INVALID, f"{par['id']} is not an epic", "parent must be a task of kind epic")
+        dup = next((r for r in ctx.db.all("SELECT id, title FROM tasks WHERE status IN ('backlog','open','ready')")
+                    if _norm_title(r["title"]) == _norm_title(title)), None)
+        if dup:
+            return Result(f"already filed as {dup['id']}: {dup['title']}", {"task": dup["id"], "duplicate": True})
+        ready_now = human and (kind == "epic" or (files and proof))
+        tid = util.next_id(ctx.db, "task", "T")
+        seq = ctx.db.scalar("SELECT COALESCE(MAX(seq), 0) + 1 FROM tasks", default=1)
+        now = util.now()
+        ctx.db.execute(
+            "INSERT INTO tasks(id, seq, title, summary, status, files, proof, kind, priority, labels, parent, filed_by, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (tid, seq, title, summary, "open" if ready_now else "backlog", util.jdump(files), util.jdump(proof), kind, priority,
+             util.jdump(labels), par["id"] if par is not None else None, ctx.actor, now, now))
+        if src is not None:
+            ctx.db.execute("INSERT OR IGNORE INTO deps(task, depends_on, kind) VALUES (?,?, 'discovered_from')", (tid, src["id"]))
+        where = f" (found while doing {src['id']})" if src is not None else ""
+        events.emit(ctx, "task.filed", f"{ctx.actor} filed {tid} [{kind}, P{priority}]: {util.one_line(title, 60)}{where}", ref=tid, task=tid)
+        if ready_now:
+            refresh_ready(ctx)
+    if ready_now:
+        return Result(f"{tid} created and accepted", {"task": tid})
+    return Result(f"filed {tid} in the backlog; the human decides whether it becomes work. Carry on with your own task."
+                  if not human else f"filed {tid} in the backlog (accept it once it has files and a test command)", {"task": tid})
+
+
+@op("task.accept", who=HUMAN, desc="Turn a backlog item into work (its files and test command are final here)",
+    params=[Param("task", required=True), Param("files", type="list", desc="default: the files suggested when it was filed"),
+            Param("proof", type="list", desc="default: the test command suggested when it was filed"),
+            Param("owner", desc="seat, or empty for whoever claims it"), Param("priority", type="int")])
+def accept(ctx, task, files=None, proof=None, owner=None, priority=None) -> Result:
+    from . import seats as seats_mod
+
+    with ctx.tx():
+        t = get(ctx, task)
+        if t["status"] != "backlog":
+            raise RTError(STATE, f"{t['id']} is {t['status']}, not in the backlog")
+        files = [util.norm_path(ctx.root, str(f)) for f in util.as_list(files, "files")] if files else util.jload(t["files"], [])
+        proof = [util.cap_chars(util.require_text(c, "proof command"), 500, "proof command") for c in util.as_list(proof, "proof")] if proof else util.jload(t["proof"], [])
+        if t["kind"] != "epic":
+            if not files:
+                raise RTError(INVALID, f"{t['id']} needs the files it may change", f"rt task accept {t['id']} --files src/x.py")
+            if not proof:
+                raise RTError(INVALID, f"{t['id']} needs a test command that proves it works", f'rt task accept {t["id"]} --proof "pytest tests/test_x.py"')
+        new_owner = util.check_handle(owner) if owner else None
+        if new_owner and "build" not in seats_mod.roles_of(seats_mod.get(ctx, new_owner)):
+            raise RTError(INVALID, f"{new_owner} has no build role")
+        prio = check_priority(priority) if priority not in (None, "") else t["priority"]
+        ctx.db.execute("UPDATE tasks SET status = 'open', files = ?, proof = ?, owner = ?, priority = ?, updated_at = ? WHERE id = ?",
+                       (util.jdump(files), util.jdump(proof), new_owner, prio, util.now(), t["id"]))
+        events.emit(ctx, "task.accepted", f"the human accepted {t['id']} as work: {util.one_line(t['title'], 60)}", ref=t["id"], task=t["id"],
+                    audience=[x for x in (new_owner, t["filed_by"]) if x and x != "human"] or None)
+        ready_ids = refresh_ready(ctx)
+    state = "ready to claim" if t["id"] in ready_ids else "waiting on its dependencies"
+    return Result(f"{t['id']} accepted: {state}" + (f" (owner {new_owner})" if new_owner else ""), {"task": t["id"]})
+
+
+@op("task.edit", who=HUMAN, desc="Change a task's title, kind, priority, labels, summary, files or test command",
+    params=[Param("task", required=True), Param("title"), Param("kind", enum=KINDS), Param("priority", type="int"),
+            Param("labels", type="list", desc="replaces the labels"), Param("summary"),
+            Param("files", type="list", desc="only before work starts"), Param("proof", type="list", desc="only before work starts")])
+def edit(ctx, task, title=None, kind=None, priority=None, labels=None, summary=None, files=None, proof=None) -> Result:
+    changes: dict[str, Any] = {}
+    with ctx.tx():
+        t = get(ctx, task)
+        if t["status"] in ("done", "cancelled"):
+            raise RTError(STATE, f"{t['id']} is {t['status']}")
+        if title is not None:
+            changes["title"] = util.cap_chars(util.require_text(title, "title"), ctx.setting("limits", "title_chars"), "title")
+        if kind is not None:
+            changes["kind"] = check_kind(kind)
+            if (changes["kind"] == "epic") != (t["kind"] == "epic"):
+                raise RTError(INVALID, "a task cannot become an epic or stop being one", "file a new epic and set parent on its tasks")
+        if priority not in (None, ""):
+            changes["priority"] = check_priority(priority)
+        if labels is not None:
+            changes["labels"] = util.jdump(check_labels(labels))
+        if summary is not None:
+            changes["summary"] = util.cap_words(util.require_text(summary, "summary", allow_empty=True), ctx.setting("limits", "summary_words"), "summary")
+        if files is not None or proof is not None:
+            if t["status"] not in ("backlog", "open", "ready"):
+                raise RTError(STATE, f"{t['id']} is {t['status']}: its files and test command are fixed while work is under way",
+                              "cancel and refile it, or let the owner propose an amendment")
+            if files is not None:
+                changes["files"] = util.jdump([util.norm_path(ctx.root, str(f)) for f in util.as_list(files, "files")])
+            if proof is not None:
+                changes["proof"] = util.jdump([util.cap_chars(util.require_text(c, "proof command"), 500, "proof command") for c in util.as_list(proof, "proof")])
+        if not changes:
+            raise RTError(INVALID, "nothing to change", "pass at least one of title, kind, priority, labels, summary, files, proof")
+        sets = ", ".join(f"{k} = ?" for k in changes)
+        ctx.db.execute(f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?", (*changes.values(), util.now(), t["id"]))
+        events.emit(ctx, "task.edited", f"the human changed {t['id']}: {', '.join(changes)}", ref=t["id"], task=t["id"],
+                    audience=[t["owner"]] if t["owner"] else None)
+    return Result(f"{t['id']} updated: {', '.join(changes)}")
+
+
+@op("task.link", who=ANY, tool="rt_task", action="link",
+    desc="Link two tasks: related or discovered_from (anyone); waits_for or parent (the human)",
+    params=[Param("task", required=True),
+            Param("relation", required=True, enum=("waits_for", "related", "discovered_from", "parent"),
+                  desc="task waits_for other; task related other; task discovered_from other; task's parent is the epic other"),
+            Param("other", required=True), Param("remove", type="bool", default=False)])
+def link(ctx, task, relation, other, remove=False) -> Result:
+    kind = relation
+    human = ctx.actor == "human"
+    if kind in ("waits_for", "parent") and not human:
+        raise RTError(FORBIDDEN, f"only the human adds {kind} links (they change what can start)", "use related, or raise it in an alert or suggestion")
+    db_kind = "blocks" if kind == "waits_for" else kind
+    with ctx.tx():
+        a, b = get(ctx, task), get(ctx, other)
+        if a["id"] == b["id"]:
+            raise RTError(INVALID, "a task cannot link to itself")
+        if kind == "parent":
+            if b["kind"] != "epic":
+                raise RTError(INVALID, f"{b['id']} is not an epic", "parent must be a task of kind epic")
+            if a["kind"] == "epic":
+                raise RTError(INVALID, "epics cannot be nested")
+            ctx.db.execute("UPDATE tasks SET parent = ?, updated_at = ? WHERE id = ?", (None if remove else b["id"], util.now(), a["id"]))
+            text = f"{a['id']} " + (f"removed from epic {b['id']}" if remove else f"is now part of epic {b['id']}")
+        else:
+            if remove:
+                ctx.db.execute("DELETE FROM deps WHERE task = ? AND depends_on = ? AND kind = ?", (a["id"], b["id"], db_kind))
+            else:
+                if db_kind == "blocks":
+                    graph: dict[str, list[str]] = {}
+                    for r in ctx.db.all("SELECT task, depends_on FROM deps WHERE kind = 'blocks'"):
+                        graph.setdefault(r["task"], []).append(r["depends_on"])
+                    graph.setdefault(a["id"], []).append(b["id"])
+                    for targets in list(graph.values()):
+                        for n in targets:
+                            graph.setdefault(n, [])
+                    cycle = _find_cycle(graph)
+                    if cycle:
+                        raise RTError(INVALID, "that would make a cycle: " + " -> ".join(cycle))
+                    if a["status"] in LIVE:
+                        raise RTError(STATE, f"{a['id']} is already {a['status']}; it cannot wait for {b['id']} now")
+                ctx.db.execute("INSERT OR IGNORE INTO deps(task, depends_on, kind) VALUES (?,?,?)", (a["id"], b["id"], db_kind))
+                if db_kind == "blocks" and a["status"] == "ready" and b["status"] != "done":
+                    ctx.db.execute("UPDATE tasks SET status = 'open', updated_at = ? WHERE id = ?", (util.now(), a["id"]))
+            label = {"blocks": "waits for", "related": "is related to", "discovered_from": "was found while doing"}[db_kind]
+            text = f"{a['id']} {label} {b['id']}" + (" (removed)" if remove else "")
+        events.emit(ctx, "task.linked", f"{ctx.actor}: {text}", ref=a["id"], task=a["id"])
+        if remove or db_kind == "blocks":
+            refresh_ready(ctx)
+    return Result(text)
+
+
+@op("task.list", who=ANY, tool="rt_task", action="list", frozen_ok=True, desc="List tasks, most urgent first",
+    params=[Param("status", desc="backlog, open, ready, working, review, done, all (default: everything not finished)"),
+            Param("kind", enum=KINDS), Param("label"), Param("priority", type="int", desc="this priority or more urgent"),
+            Param("owner"), Param("limit", type="int", default=30)])
+def list_tasks(ctx, status=None, kind=None, label=None, priority=None, owner=None, limit=30) -> Result:
+    groups = {"working": ("claimed", "changes_requested"), "review": ("proving", "in_review", "merge_blocked"),
+              "all": STATUSES, None: tuple(x for x in STATUSES if x not in ("done", "cancelled"))}
+    st = groups.get(status, (status,))
+    if any(x not in STATUSES for x in st):
+        raise RTError(INVALID, f"unknown status {status!r}", "backlog, open, ready, working, review, done, cancelled or all")
+    q = f"SELECT * FROM tasks WHERE status IN ({','.join('?' * len(st))})"
+    args: list[Any] = list(st)
+    if kind:
+        q += " AND kind = ?"
+        args.append(check_kind(kind))
+    if priority not in (None, ""):
+        q += " AND priority <= ?"
+        args.append(check_priority(priority))
+    if owner:
+        q += " AND owner = ?"
+        args.append(util.check_handle(owner))
+    rows = ctx.db.all(q + f" ORDER BY {ORDER}", tuple(args))
+    if label:
+        lab = check_labels([label])[0]
+        rows = [r for r in rows if lab in util.jload(r["labels"], [])]
+    limit = max(1, min(int(limit or 30), 200))
+    lines = [fmt.task_line(r) for r in rows[:limit]]
+    if len(rows) > limit:
+        lines.append(f"… {len(rows) - limit} more")
+    return Result("\n".join(lines) or "no tasks match", {"tasks": [r["id"] for r in rows]})

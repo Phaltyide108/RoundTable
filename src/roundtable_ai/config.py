@@ -79,6 +79,9 @@ SCHEMA: dict[str, dict[str, tuple[Any, Any, str]]] = {
     "dashboard": {
         "port": (8765, int, "Local dashboard port (127.0.0.1 only)"),
     },
+    "history": {
+        "keep_days": (30, int, "rt compact keeps full detail for work finished within this many days"),
+    },
 }
 
 

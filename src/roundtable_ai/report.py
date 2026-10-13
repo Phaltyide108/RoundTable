@@ -27,6 +27,10 @@ def waiting_on_human(ctx) -> list[str]:
         items.append(f"{q['seat']} asks for {q['level']} review on {q['task']}: rt review level-decide {q['id']} approve|deny")
     for m in ctx.db.all("SELECT id, kind, task FROM amendments WHERE status = 'pending' AND instr(needs, '\"human\"') > 0"):
         items.append(f"amendment {m['id']} ({m['kind']} {m['task'] or ''}) needs you: rt plan amend-decide {m['id']} approve|reject")
+    backlog = ctx.db.all("SELECT id FROM tasks WHERE status = 'backlog' ORDER BY priority, seq")
+    if backlog:
+        ids = ", ".join(r["id"] for r in backlog[:5]) + (" …" if len(backlog) > 5 else "")
+        items.append(f"{len(backlog)} filed item(s) in the backlog ({ids}): rt task accept <id>, or rt task cancel <id> <reason>")
     for a in ctx.db.all("SELECT id, level, title FROM alerts WHERE status != 'resolved' AND level >= 4"):
         items.append(f"alert {a['id']} L{a['level']}: {util.one_line(a['title'], 50)} · rt alert show {a['id']}")
     for a in ctx.db.all("SELECT id, title, proposed_level FROM alerts WHERE status != 'resolved' AND proposed_level IS NOT NULL"):
@@ -57,7 +61,7 @@ def status_text(ctx) -> str:
     for t in ctx.db.all("SELECT id, status FROM tasks ORDER BY seq, id"):
         by.setdefault(t["status"], []).append(t["id"])
     if by:
-        order = ("claimed", "proving", "in_review", "changes_requested", "merge_blocked", "ready", "open", "done", "cancelled")
+        order = ("claimed", "proving", "in_review", "changes_requested", "merge_blocked", "ready", "open", "backlog", "done", "cancelled")
         lines.append("tasks: " + " · ".join(f"{s} {len(by[s])} ({', '.join(by[s][:6])}{' …' if len(by[s]) > 6 else ''})" for s in order if s in by))
     alerts = ctx.db.all("SELECT id, level, title FROM alerts WHERE status != 'resolved' ORDER BY level DESC")
     if alerts:

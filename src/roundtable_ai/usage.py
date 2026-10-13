@@ -196,7 +196,7 @@ def _codex_snapshot(pl: dict, path: Path) -> dict[str, Any]:
 def seat_snapshot(ctx, row) -> dict[str, Any] | None:
     if row["app"] == "claude-code":
         return load_snapshot(ctx.home, row["handle"])
-    if row["app"] in ("codex-cli", "codex-app") and row["worktree"]:
+    if row["app"] in ("codex-cli", "codex-vscode", "codex-app") and row["worktree"]:
         try:
             snap = from_codex_logs(row["worktree"])
         except Exception:

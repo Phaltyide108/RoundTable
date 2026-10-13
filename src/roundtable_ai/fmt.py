@@ -27,4 +27,10 @@ def task_line(row, *, with_owner: bool = True) -> str:
     files = util.jload(row["files"], [])
     owner = f" {row['owner']}" if with_owner and row["owner"] else ""
     f = f" ({', '.join(files[:3])}{' …' if len(files) > 3 else ''})" if files else ""
-    return f"{row['id']} [{row['status']}]{owner} · {util.one_line(row['title'], 80)}{f}"
+    keys = row.keys() if hasattr(row, "keys") else []
+    tag = ""
+    if "priority" in keys and row["priority"] is not None and row["priority"] != 2:
+        tag += f" P{row['priority']}"
+    if "kind" in keys and row["kind"] not in (None, "task"):
+        tag += f" {row['kind']}"
+    return f"{row['id']} [{row['status']}]{tag}{owner} · {util.one_line(row['title'], 80)}{f}"

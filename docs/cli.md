@@ -18,6 +18,8 @@ positional arguments:
     goal          start a plan
     plan          the plan
     task          tasks
+    memory        project memory every model sees when it joins
+    compact       shrink history of work finished long ago
     review        reviews assigned to you (the human)
     vote          votes
     alert         alerts
@@ -103,7 +105,7 @@ options:
 
 ```text
 usage: rt seat add [-h] --model MODEL
-                   --app {claude-code,claude-app,codex-cli,codex-app,other}
+                   --app {claude-code,claude-vscode,claude-app,codex-cli,codex-vscode,codex-app,gemini-cli,qwen-code,opencode,copilot-cli,cursor,other}
                    [--company COMPANY] [--roles ROLES] [--no-worktree]
                    handle
 
@@ -113,7 +115,16 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --model MODEL         model id the app understands, e.g. claude-opus-5-5
-  --app {claude-code,claude-app,codex-cli,codex-app,other}
+  --app {claude-code,claude-vscode,claude-app,codex-cli,codex-vscode,codex-app,gemini-cli,qwen-code,opencode,copilot-cli,cursor,other}
+                        claude-code: Claude Code in a terminal; claude-vscode:
+                        Claude Code in VS Code; claude-app: Claude desktop app
+                        (plans and reviews only); codex-cli: Codex in a
+                        terminal; codex-vscode: Codex in VS Code; codex-app:
+                        ChatGPT desktop app (Codex mode); gemini-cli: Gemini
+                        CLI in a terminal; qwen-code: Qwen Code in a terminal;
+                        opencode: opencode in a terminal; copilot-cli: GitHub
+                        Copilot CLI in a terminal; cursor: Cursor editor;
+                        other: Another app that supports MCP
   --company COMPANY     anthropic, openai, google ... (guessed when omitted)
   --roles ROLES         comma list of plan,build,review (default all)
   --no-worktree         no separate working copy
@@ -286,6 +297,13 @@ positional arguments:
     reassign      give a task to another seat
     merge         retry merges
     review-level  set one task's review depth
+    list          list tasks, most urgent first
+    file          add work to the backlog (ready at once if you give files and
+                  a test command)
+    accept        turn a backlog item into work
+    edit          change title, kind, priority, labels, summary, files or test
+                  command
+    link          TASK waits_for|related|discovered_from|parent OTHER
 
 options:
   -h, --help      show this help message and exit
@@ -353,6 +371,195 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+```
+
+### rt task list
+
+```text
+usage: rt task list [-h] [--status STATUS]
+                    [--kind {task,feature,bug,chore,docs,test,epic}]
+                    [--label LABEL] [--priority {0,1,2,3,4}] [--owner OWNER]
+                    [--limit LIMIT]
+
+options:
+  -h, --help            show this help message and exit
+  --status STATUS       backlog, open, ready, working, review, done, all
+  --kind {task,feature,bug,chore,docs,test,epic}
+  --label LABEL
+  --priority {0,1,2,3,4}
+                        this priority or more urgent (0 urgent .. 4 someday)
+  --owner OWNER
+  --limit LIMIT
+```
+
+### rt task file
+
+```text
+usage: rt task file [-h] [--kind {task,feature,bug,chore,docs,test,epic}]
+                    [--priority {0,1,2,3,4}] [--summary SUMMARY]
+                    [--files FILES] [--proof PROOF] [--parent PARENT]
+                    [--labels LABELS]
+                    title
+
+positional arguments:
+  title
+
+options:
+  -h, --help            show this help message and exit
+  --kind {task,feature,bug,chore,docs,test,epic}
+  --priority {0,1,2,3,4}
+  --summary SUMMARY
+  --files FILES         comma list
+  --proof PROOF         test command (repeatable)
+  --parent PARENT       epic task id
+  --labels LABELS       comma list
+```
+
+### rt task accept
+
+```text
+usage: rt task accept [-h] [--files FILES] [--proof PROOF] [--owner OWNER]
+                      [--priority {0,1,2,3,4}]
+                      task
+
+positional arguments:
+  task
+
+options:
+  -h, --help            show this help message and exit
+  --files FILES         comma list (default: as filed)
+  --proof PROOF         test command (repeatable; default: as filed)
+  --owner OWNER
+  --priority {0,1,2,3,4}
+```
+
+### rt task edit
+
+```text
+usage: rt task edit [-h] [--title TITLE]
+                    [--kind {task,feature,bug,chore,docs,test,epic}]
+                    [--priority {0,1,2,3,4}] [--labels LABELS]
+                    [--summary SUMMARY] [--files FILES] [--proof PROOF]
+                    task
+
+positional arguments:
+  task
+
+options:
+  -h, --help            show this help message and exit
+  --title TITLE
+  --kind {task,feature,bug,chore,docs,test,epic}
+  --priority {0,1,2,3,4}
+  --labels LABELS       comma list (replaces)
+  --summary SUMMARY
+  --files FILES         comma list
+  --proof PROOF         test command (repeatable)
+```
+
+### rt task link
+
+```text
+usage: rt task link [-h] [--remove]
+                    task {waits_for,related,discovered_from,parent} other
+
+positional arguments:
+  task
+  {waits_for,related,discovered_from,parent}
+  other
+
+options:
+  -h, --help            show this help message and exit
+  --remove
+```
+
+## rt memory
+
+```text
+usage: rt memory [-h] action ...
+
+positional arguments:
+  action
+    add       remember something (yours are pinned)
+    list      show project memory
+    forget    forget a note
+    pin       pin a note
+    unpin     unpin a note
+
+options:
+  -h, --help  show this help message and exit
+```
+
+### rt memory add
+
+```text
+usage: rt memory add [-h] [--tags TAGS] text
+
+positional arguments:
+  text
+
+options:
+  -h, --help   show this help message and exit
+  --tags TAGS  comma list
+```
+
+### rt memory list
+
+```text
+usage: rt memory list [-h] [--all] [query]
+
+positional arguments:
+  query
+
+options:
+  -h, --help  show this help message and exit
+  --all
+```
+
+### rt memory forget
+
+```text
+usage: rt memory forget [-h] [--reason REASON] id
+
+positional arguments:
+  id
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON
+```
+
+### rt memory pin
+
+```text
+usage: rt memory pin [-h] id
+
+positional arguments:
+  id
+
+options:
+  -h, --help  show this help message and exit
+```
+
+### rt memory unpin
+
+```text
+usage: rt memory unpin [-h] id
+
+positional arguments:
+  id
+
+options:
+  -h, --help  show this help message and exit
+```
+
+## rt compact
+
+```text
+usage: rt compact [-h] [--days DAYS]
+
+options:
+  -h, --help   show this help message and exit
+  --days DAYS
 ```
 
 ## rt review
@@ -620,10 +827,11 @@ options:
 ## rt setup
 
 ```text
-usage: rt setup [-h] [--dry-run] [--remove] {claude-code,claude-app,codex}
+usage: rt setup [-h] [--dry-run] [--remove]
+                {claude-code,claude-app,codex,copilot}
 
 positional arguments:
-  {claude-code,claude-app,codex}
+  {claude-code,claude-app,codex,copilot}
 
 options:
   -h, --help            show this help message and exit
@@ -710,6 +918,7 @@ options:
 
 `rt call <operation> key=value ...` runs any operation directly. Human operations:
 
+- `admin.compact`: Shrink old history: keep each finished task's outcome, drop step-by-step detail
 - `admin.config_set`: Change a setting
 - `admin.config_show`: Show all settings
 - `admin.export`: Write JSONL snapshots to .roundtable/export
@@ -719,6 +928,7 @@ options:
 - `admin.unfreeze`: Let seats work again
 - `admin.usage`: Context, tokens and plan limits per seat, plus Roundtable's own token cost
 - `alert.set_level`: Change an alert's level
+- `memory.pin`: Pin a note so every seat sees it when it joins (or unpin it)
 - `plan.amend_decide`: Approve (applies now) or reject an amendment
 - `plan.cancel`: Cancel the active plan (and its unfinished tasks)
 - `plan.continue`: Move on without missing drafts or critiques
@@ -731,7 +941,9 @@ options:
 - `seat.remove`: Remove a seat (history is kept)
 - `seat.resume`: Resume a paused seat
 - `seat.worktree`: Create (or repair) a seat's working copy
+- `task.accept`: Turn a backlog item into work (its files and test command are final here)
 - `task.cancel`: Cancel a task
+- `task.edit`: Change a task's title, kind, priority, labels, summary, files or test command
 - `task.merge`: Retry merging tasks waiting to merge
 - `task.reassign`: Give a task to another seat (or none)
 - `task.set_review`: Set one task's review depth

@@ -38,12 +38,14 @@ INSTRUCTIONS = (
 TOOL_INFO = {
     "rt_sync": "Start here every session: what changed since you last looked and what needs you. First call in a chat: join=\"<your seat name>\".",
     "rt_plan": "Plan together: blind drafts, critique, propose, approve or object, amendments to the locked plan.",
-    "rt_task": "Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable runs the proof), show, now.",
+    "rt_task": "Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable runs the proof), show, now. "
+               "file: put a bug or missing work you found into the human's backlog.",
     "rt_lease": "Lease more files for your task, or give them back.",
     "rt_review": "Review others' tasks at the depth the human set; answer review comments on yours.",
     "rt_suggest": "Advise the owner of a task or file instead of editing it; answer suggestions sent to you.",
     "rt_alert": "Problems, level 1-5 (4 and 5 need evidence): raise, ack, resolve, show, list.",
     "rt_vote": "Settle stuck decisions by vote; every ballot needs a reason.",
+    "rt_memory": "Project memory that outlives chats: add a convention, decision or gotcha; list; forget what no longer holds.",
 }
 TOOL_ORDER = tuple(TOOL_INFO)
 DEFAULT_ACTION = {"rt_sync": "sync"}
@@ -71,7 +73,8 @@ def build_tools() -> tuple[list[dict], dict[tuple[str, str], registry.Op]]:
             index[(name, o.action)] = o
             parts = []
             for p in o.params:
-                parts.append(p.name if p.required else p.name + "?")
+                if p.required:
+                    parts.append(p.name)
                 schema = dict(JSON_TYPES[p.type])
                 if p.enum:
                     schema["enum"] = list(p.enum)
@@ -87,6 +90,8 @@ def build_tools() -> tuple[list[dict], dict[tuple[str, str], registry.Op]]:
                     props[p.name].pop("enum")
                 else:
                     props.setdefault(p.name, schema)
+            if any(not p.required for p in o.params):
+                parts.append("…")
             sigs.append(f"{o.action}({', '.join(parts)})")
         if name == "rt_sync":
             props["join"] = {"type": "string", "description": "your seat name; first call in a new chat only"}

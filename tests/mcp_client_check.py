@@ -54,7 +54,7 @@ async def main(server_python: str, home: str, seat: str) -> int:
     def err(r):
         return getattr(r, "is_error", None) if hasattr(r, "is_error") else r.isError
 
-    assert len(names) == 8, names
+    assert len(names) == 9, names
     assert "ROUNDTABLE: you are seat" in text, text
     assert not err(listed), listed.content[0].text
     assert err(bad) and "no task T99" in bad.content[0].text, bad.content[0].text

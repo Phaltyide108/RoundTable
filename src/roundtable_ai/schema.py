@@ -8,11 +8,41 @@ Conventions
   and bump SCHEMA_VERSION.
 
 Task status values (see DESIGN.md for the state machine):
-  open, ready, claimed, proving, in_review, changes_requested,
+  backlog (filed, waiting for the human to accept), open, ready, claimed, proving, in_review, changes_requested,
   merge_blocked, done, cancelled
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Version 2 (Roundtable 0.2): task kinds, priorities, labels, who filed a task,
+# and project memory. Applied to new databases too (after SCHEMA_V1).
+MIGRATION_1_TO_2 = r"""
+ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';     -- task | feature | bug | chore | docs | test | epic
+ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;   -- 0 urgent .. 4 someday
+ALTER TABLE tasks ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';     -- JSON list
+ALTER TABLE tasks ADD COLUMN filed_by TEXT;                         -- seat or human that filed it (backlog items)
+CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority, seq);
+-- deps: one row per (task, other, kind), so "related" and "waits for" can both link the same pair
+CREATE TABLE deps_v2 (
+  task       TEXT NOT NULL,
+  depends_on TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'blocks',  -- blocks | related | discovered_from
+  PRIMARY KEY (task, depends_on, kind)
+);
+INSERT INTO deps_v2(task, depends_on, kind) SELECT task, depends_on, kind FROM deps;
+DROP TABLE deps;
+ALTER TABLE deps_v2 RENAME TO deps;
+CREATE TABLE IF NOT EXISTS memories (
+  id         TEXT PRIMARY KEY,                -- N1
+  text       TEXT NOT NULL,
+  author     TEXT NOT NULL,
+  tags       TEXT NOT NULL DEFAULT '[]',
+  pinned     INTEGER NOT NULL DEFAULT 0,
+  status     TEXT NOT NULL DEFAULT 'active',  -- active | forgotten
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+"""
 
 SCHEMA_V1 = r"""
 CREATE TABLE IF NOT EXISTS meta (
