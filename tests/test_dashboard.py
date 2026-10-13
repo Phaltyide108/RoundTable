@@ -95,8 +95,9 @@ def test_setup_then_full_project_from_the_dashboard(repo, fake_home, monkeypatch
         assert any(i["status"] == "ok" for i in doc["items"])
         assert c.act("admin.config_set", key="proof.timeout_seconds", value="600")["ok"]
         assert c.act("task.claim", task="T1")["message"].startswith("action")
-        recent = json.loads((fake_home / "xdg" / "roundtable" / "recent.json").read_text()) if os.name != "nt" else [{"root": str(repo)}]
-        assert recent[0]["root"] == str(repo)
+        from roundtable_ai.paths import recent_projects
+
+        assert recent_projects()[0]["root"] == str(repo.resolve())
     finally:
         c.close()
 

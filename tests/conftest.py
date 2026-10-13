@@ -60,6 +60,7 @@ def _clean_env(monkeypatch, tmp_path_factory):
     cfg = tmp_path_factory.mktemp("userconfig")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg / "xdg"))
     monkeypatch.setenv("APPDATA", str(cfg / "appdata"))
+    monkeypatch.setenv("RT_CONFIG_DIR", str(cfg / "roundtable"))
 
 
 @pytest.fixture

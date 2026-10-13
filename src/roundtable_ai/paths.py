@@ -90,6 +90,8 @@ def user_config_dir() -> Path:
     """Per-user settings folder (only the dashboard's list of recent projects lives here)."""
     import sys
 
+    if os.environ.get("RT_CONFIG_DIR"):
+        return Path(os.environ["RT_CONFIG_DIR"])
     if os.name == "nt":
         base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
         return Path(base) / "Roundtable"
