@@ -13,6 +13,8 @@ Every failure has a defined outcome and a message that says what to do next. Mos
 | A model runs `rt` commands from its own working copy | They act as that seat; human-only commands are refused |
 | Database busy (several seats writing at once) | Waits up to 10 seconds, then "busy, try again" |
 | Project in Dropbox, OneDrive, iCloud or Google Drive | `rt doctor` warns: syncing can corrupt the database |
+| The app's sandbox forbids writing `.git` (Codex workspace-write) | `commit=true` on checkpoint/close: Roundtable commits the seat's leased files from its own process; unleased files are listed and left alone |
+| A proof run inherits the seat's `RT_SEAT`/`RT_HOME` and the project's tests call `rt` | Proof runs drop those variables, so tests never act as the seat |
 | A proof takes longer than the app allows a tool call (Codex: about 60 s) | Proofs run in a separate background process; close answers "running" and the result arrives in the digest |
 | A proof hangs or prints megabytes | Stopped at its time limit (the whole process tree); only the last 40 lines are kept |
 | The proof runner is killed (reboot, crash) | Detected and marked as an error; the task goes back to its owner |

@@ -110,6 +110,8 @@ def _kill_tree(p: subprocess.Popen) -> None:
 def _run_one(cmd: str, workdir: Path, timeout: int, tail: deque) -> tuple[str, int | None]:
     """Run one shell command; returns (status, exit code)."""
     env = dict(os.environ)
+    for var in ("RT_HOME", "RT_SEAT", "RT_SEAT_KEY"):  # the project's tests must not act as the seat that started them
+        env.pop(var, None)
     env.update({"RT_PROOF": "1", "CI": "1", "PYTHONDONTWRITEBYTECODE": "1"})  # CI=1: no interactive test runners; no .pyc litter
     kwargs: dict = {"cwd": str(workdir), "env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE,
                     "stderr": subprocess.STDOUT, "shell": True}

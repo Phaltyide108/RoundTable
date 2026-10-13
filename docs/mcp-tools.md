@@ -38,8 +38,8 @@ Your work: ready tasks, claim (leases its files), checkpoint, close (Roundtable 
 | --- | --- | --- |
 | `ready` | none | Tasks you can claim, and your current ones |
 | `claim` | `task` text | Claim a ready task (leases its files) or resume your own |
-| `checkpoint` | `task` text<br>`summary` text<br>`line` (optional) text | Save progress with a short summary |
-| `close` | `task` text<br>`summary` text | Finish: Roundtable runs the task's proof, then review |
+| `checkpoint` | `task` text<br>`summary` text<br>`line` (optional) text<br>`commit` (optional) true/false | Save progress with a short summary |
+| `close` | `task` text<br>`summary` text<br>`commit` (optional) true/false | Finish: Roundtable runs the task's proof, then review |
 | `show` | `task` text<br>`zoom` (optional) text: L0 / L1 / L2 | Read a task at zoom L0, L1 or L2 |
 | `now` | `text` text | Set your one-line 'now doing' (others see it) |
 

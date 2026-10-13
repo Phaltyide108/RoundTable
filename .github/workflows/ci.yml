@@ -29,7 +29,8 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Test
-        run: python -m pytest -q
+        shell: bash
+        run: python -m pytest -q -rfE --junitxml=pytest.xml || { python scripts/ci_annotate.py pytest.xml; exit 1; }
 
   official-mcp-client:
     name: official MCP clients (1.x and 2.x)

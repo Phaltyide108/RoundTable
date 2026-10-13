@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from . import util
-from .errors import CONFLICT, GIT, INVALID, RTError
+from .errors import CONFLICT, GIT, INVALID, STATE, RTError
 
 GUARD_MARKER = "roundtable-guard"
 
@@ -436,6 +436,36 @@ def install_guard(ctx) -> str:
 def staged_files(path: Path | str) -> list[str]:
     out = ok(path, "diff", "--cached", "--name-only", "-z", "--no-renames", what="listing staged files")
     return [f for f in out.split("\0") if f]
+
+
+def commit_leased(ctx, seat_row, task_row, message: str) -> tuple[str | None, list[str], list[str]]:
+    """Commit the seat's changes that its leases cover, on its task branch.
+
+    Runs in Roundtable's own process, so it works for apps whose sandbox keeps
+    `.git` read-only (Codex's workspace-write mode does). Files outside the
+    seat's leases are left uncommitted and returned as `skipped`.
+    Returns (new commit or None, committed files, skipped files).
+    """
+    from . import leases
+
+    wt = seat_row["worktree"]
+    branch = task_branch(seat_row["handle"], task_row["id"])
+    if not wt or current_branch(wt) != branch:
+        raise RTError(STATE, f"your working copy is not on {branch}", f'rt_task claim task="{task_row["id"]}" switches back to it')
+    mine = [r["pattern"] for r in leases.active(ctx, seat_row["handle"])]
+    candidates = list(dict.fromkeys(tracked_dirty(wt) + [f for f in untracked_files(wt) if not is_artifact(f)]))
+    files = [f for f in candidates if util.files_covered(mine, f)]
+    skipped = [f for f in candidates if f not in files]
+    if not files:
+        return None, [], skipped
+    ident = []
+    if run(wt, "config", "user.email").returncode != 0:  # no identity configured: commit as Roundtable rather than fail
+        ident = ["-c", "user.name=Roundtable", "-c", "user.email=roundtable@localhost"]
+    model = (seat_row["model"] or "").replace("<", "").replace(">", "")
+    author = f"{seat_row['handle']} ({model}) <{seat_row['handle']}@roundtable.invalid>"
+    ok(wt, "add", "-A", "--", *files, what="staging your files")
+    ok(wt, *ident, "commit", "-q", "-m", message, f"--author={author}", "--", *files, what="committing")
+    return head(wt), files, skipped
 
 
 def seat_from_branch(branch: str | None) -> str | None:

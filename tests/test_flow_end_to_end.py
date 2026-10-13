@@ -173,3 +173,30 @@ def test_shared_folder_mode(rt_nogit):
     assert e.code in (errors.FORBIDDEN, errors.CONFLICT)
     res = rt.seat("opus", "task.close", task="T1", summary="wrote notes")
     assert "done" in res.text
+
+
+def test_roundtable_commits_for_sandboxed_seat(rt, repo):
+    """Codex's sandbox keeps .git read-only, so a seat can ask Roundtable to commit its leased files."""
+    from pathlib import Path
+
+    three_seats(rt)
+    plan_and_lock(rt)
+    rt.seat("opus", "sync")
+    rt.seat("opus", "task.claim", task="T1")
+    wt = Path(rt.q("SELECT worktree FROM seats WHERE handle='opus'")[0]["worktree"])
+    (wt / "src" / "greet.py").write_text("def greet():\n    return 'hello'\n")
+    (wt / "README.md").write_text("not mine\n")
+    (wt / "__pycache__").mkdir()
+    (wt / "__pycache__" / "x.pyc").write_bytes(b"0")
+    res = rt.seat("opus", "task.checkpoint", task="T1", summary="greet() returns hello", commit=True)
+    assert "committed 1 file(s)" in res.text and "README.md" in res.text
+    log = git(wt, "log", "-1", "--format=%an|%s|%H")
+    assert log.startswith("opus (claude-opus-5-5)|T1: greet() returns hello")
+    assert git(wt, "show", "--name-only", "--format=", "HEAD").split() == ["src/greet.py"]
+    again = rt.seat("opus", "task.checkpoint", task="T1", summary="no changes", commit=True)
+    assert "nothing new to commit" in again.text
+    # README.md is still uncommitted and not leased; close must not sweep it in
+    git(wt, "checkout", "--", "README.md")
+    (wt / "src" / "greet.py").write_text("def greet():\n    return 'hello!'\n")
+    res = rt.seat("opus", "task.close", task="T1", summary="added greet()", commit=True)
+    assert "committed 1 file(s)" in res.text and "done and merged" in res.text, res.text

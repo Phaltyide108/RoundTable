@@ -14,6 +14,8 @@ git config --global user.name >/dev/null || git config --global user.name "You"
 python -m pytest
 ```
 
+With [uv](https://docs.astral.sh/uv/) you can skip the virtual environment: `uv run --no-project --python 3.12 --with pytest -- python -m pytest -q` (the tests always use the code next to them, so this works in any git worktree).
+
 The `mcp-tests` extra installs the official MCP client so the end-to-end protocol test runs; without it that one test is skipped.
 
 ## Ground rules

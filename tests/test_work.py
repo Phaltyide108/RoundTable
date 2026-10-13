@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import subprocess
 import sys
 import time
@@ -234,3 +235,19 @@ def test_cli_inside_worktree_acts_as_seat(rt, monkeypatch):
     assert out.returncode == 1 and "only the human" in out.stderr
     out = subprocess.run([sys.executable, "-m", "roundtable_ai", "call", "task.ready"], capture_output=True, text=True)
     assert out.returncode == 0 and out.stdout.startswith("[rt:")
+
+
+def test_proof_command_does_not_inherit_seat_identity(tmp_path, monkeypatch):
+    """A project's own tests may call `rt`; they must not act as the seat whose proof is running."""
+    from collections import deque
+
+    from roundtable_ai import proofs
+
+    monkeypatch.setenv("RT_SEAT", "opus")
+    monkeypatch.setenv("RT_HOME", str(tmp_path))
+    tail: deque = deque(maxlen=20)
+    script = tmp_path / "show.py"
+    script.write_text('import os\nprint("seat=" + os.environ.get("RT_SEAT", "none"), "home=" + os.environ.get("RT_HOME", "none"))\n')
+    status, rc = proofs._run_one(f'"{sys.executable}" "{script}"', tmp_path, 60, tail)
+    assert rc == 0, list(tail)
+    assert any("seat=none home=none" in line for line in tail), list(tail)

@@ -22,6 +22,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+# Subprocesses (python -m roundtable_ai, git hooks) must run this same source tree, not an
+# installed copy: that is what lets each Roundtable seat test its own working copy.
+os.environ["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src")] + [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p])
 
 from roundtable_ai import dispatch, project  # noqa: E402
 from roundtable_ai.context import open_ctx  # noqa: E402

@@ -50,6 +50,7 @@ rt setup codex
 It adds a `[mcp_servers.roundtable-<project>]` table with `tool_timeout_sec = 120` and leaves every other line of the file, including comments, untouched. Verified with Codex CLI 0.162.1.
 
 - **Codex CLI:** `rt launch sol` starts `codex` in the seat's working copy, with the model and the seat binding passed as `-c` overrides.
+- **Commits from Codex:** Codex's sandbox keeps `.git` read-only (checked with Codex CLI 0.162.1), so a plain `git commit` needs your approval each time. Seats are told they can pass `commit=true` to `rt_task checkpoint` or `rt_task close` instead: Roundtable then commits only the files leased to that seat, with the seat as the commit author.
 - **ChatGPT desktop app:** switch to Codex mode, open the seat's working copy folder (`rt seat list` shows it), and say "join Roundtable as sol56".
 - **VS Code extension:** open the seat's working copy folder and say the same.
 

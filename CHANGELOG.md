@@ -14,5 +14,8 @@ First release.
 - Per-seat digests built from an event log at zero model-token cost.
 - Dependency-free MCP server (stdio), tested with the official MCP client 1.30.0 and 2.x and with Claude Code 2.1.296.
 - `rt usage`: per-seat context size, session tokens, 5-hour and 7-day plan limits (from Claude Code's status line and Codex session logs), plus the token cost of the exchange between models. Claude Code seats launched with `rt launch` show it in their status line; `rt watch` warns near a limit.
+- `commit=true` on `rt_task checkpoint` / `close`: Roundtable commits the seat's leased files itself, with the seat as author. Needed for Codex, whose sandbox keeps `.git` read-only.
+- Proof runs no longer inherit `RT_SEAT` / `RT_HOME`, so a project's own tests never act as the seat.
+- `AGENTS.md` / `CLAUDE.md` for models working on this repository, and docs/first-real-run.md.
 - Install script that needs no sudo (uses uv or pipx, installs uv if neither exists).
 - `rt` command line, `rt setup` for Claude Code / Claude app / Codex (merged with backups), `rt launch`, `rt doctor`, `rt watch` (notifications and wake-ups), `rt ui` local dashboard.

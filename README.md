@@ -206,6 +206,7 @@ More in [docs/troubleshooting.md](docs/troubleshooting.md) and [docs/edge-cases.
 - [MCP tools reference](docs/mcp-tools.md), for writing prompts
 - [Edge cases](docs/edge-cases.md)
 - [Architecture](docs/architecture.md), for contributors
+- [First real run](docs/first-real-run.md): Claude and GPT build two features of Roundtable itself, step by step
 - [Comparison with Beads, Gas Town and MCP Agent Mail](docs/comparison.md): what we lack, what we add
 
 ## Contributing

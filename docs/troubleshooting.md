@@ -14,6 +14,7 @@ Start with `rt doctor`. It checks Python, the project, git, every seat's working
 | "STOP: ..." | a level-5 alert, or you ran `rt freeze` | `rt alert list` and resolve it, or `rt unfreeze` |
 | A task "waits to merge" | your main folder has uncommitted changes, is on another branch, or there is a conflict | `rt status` shows why; fix it, then `rt task merge` |
 | "git does not know your name and email yet" | git identity not configured | `git config --global user.name "Your Name"` and `git config --global user.email you@example.com` |
+| Codex says `git commit` failed: "Read-only file system" on `.git/.../index.lock` | Codex's sandbox (workspace-write) keeps every `.git` folder read-only | approve running it outside the sandbox when Codex asks, or have the seat pass `commit=true` to `rt_task checkpoint`/`close` so Roundtable commits its leased files |
 | Commit stopped by "roundtable: commit stopped" | a seat tried to commit files it doesn't lease | unstage them, or lease them first (`rt_lease extend`) |
 | A proof keeps timing out | slow tests | `rt config set proof.timeout_seconds 1800` |
 | Background wake-ups don't happen | the seat runs in a desktop app, or `claude`/`codex` isn't on PATH | desktop apps can't be woken: answer the notification yourself; for CLI seats, see `rt doctor` |

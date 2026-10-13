@@ -334,14 +334,16 @@ def _own_working(ctx, seat: str, task):
 
 @op("task.checkpoint", tool="rt_task", action="checkpoint", desc="Save progress with a short summary",
     params=[Param("task", required=True), Param("summary", required=True, desc="<= 80 words: what changed and why"),
-            Param("line", desc="one-line headline (defaults to the start of the summary)")])
-def checkpoint(ctx, task, summary, line=None) -> Result:
+            Param("line", desc="one-line headline (defaults to the start of the summary)"),
+            Param("commit", type="bool", default=False, desc="Roundtable commits your leased changes first (use when your app cannot run git commit)")])
+def checkpoint(ctx, task, summary, line=None, commit=False) -> Result:
     from . import gitops, seats
 
     seat = ctx.actor
     t = _own_working(ctx, seat, task)
     summary = util.cap_words(util.require_text(summary, "summary"), ctx.setting("limits", "summary_words"), "summary")
     l0 = util.cap_chars(util.one_line(line or summary, ctx.setting("limits", "title_chars")), ctx.setting("limits", "title_chars"), "line")
+    note = _commit_for_seat(ctx, seat, t, l0) if commit else ""
     commit, files, added, removed = None, [], 0, 0
     if gitops.uses_worktrees(ctx):
         wt = seats.get(ctx, seat)["worktree"]
@@ -358,12 +360,26 @@ def checkpoint(ctx, task, summary, line=None) -> Result:
         )
         stat = f" [{', '.join(files[:3])}{' …' if len(files) > 3 else ''} +{added} -{removed}]" if files else ""
         events.emit(ctx, "task.checkpoint", f"{t['id']} checkpoint: {l0}{stat}", ref=cid, task=t["id"], files=files or None)
-    return Result(f"saved {cid} for {t['id']}" + (f" at {commit[:8]}" if commit else ""), {"id": cid, "commit": commit})
+    return Result(note + f"saved {cid} for {t['id']}" + (f" at {commit[:8]}" if commit else ""), {"id": cid, "commit": commit})
+
+
+def _commit_for_seat(ctx, seat, t, message) -> str:
+    """Commit the seat's leased changes for it; returns a short note for the reply."""
+    from . import gitops, seats
+
+    if not gitops.uses_worktrees(ctx):
+        raise RTError(STATE, "this project has no per-seat working copies, so Roundtable does not commit for you", "commit with git yourself")
+    sha, files, skipped = gitops.commit_leased(ctx, seats.get(ctx, seat), t, f"{t['id']}: {message}")
+    note = f"committed {len(files)} file(s) at {sha[:8]}. " if sha else "nothing new to commit. "
+    if skipped:
+        note += f"Not committed (not leased to you): {', '.join(skipped[:6])}{' …' if len(skipped) > 6 else ''}. "
+    return note
 
 
 @op("task.close", tool="rt_task", action="close", desc="Finish: Roundtable runs the task's proof, then review",
-    params=[Param("task", required=True), Param("summary", required=True, desc="<= 80 words: what you did")])
-def close(ctx, task, summary) -> Result:
+    params=[Param("task", required=True), Param("summary", required=True, desc="<= 80 words: what you did"),
+            Param("commit", type="bool", default=False, desc="Roundtable commits your leased changes first (use when your app cannot run git commit)")])
+def close(ctx, task, summary, commit=False) -> Result:
     from . import gitops, leases, proofs, seats, suggestions
 
     seat = ctx.actor
@@ -373,6 +389,7 @@ def close(ctx, task, summary) -> Result:
     if open_s:
         ids = ", ".join(s["id"] for s in open_s)
         raise RTError(STATE, f"answer the open suggestions on {t['id']} first: {ids}", f'rt_suggest reply id="{open_s[0]["id"]}" status=accepted|rejected|later reason="..."')
+    note = _commit_for_seat(ctx, seat, t, util.one_line(summary, 72)) if commit else ""
     if gitops.uses_worktrees(ctx):
         wt = seats.get(ctx, seat)["worktree"]
         branch = gitops.task_branch(seat, t["id"])
@@ -385,7 +402,7 @@ def close(ctx, task, summary) -> Result:
         if dirty:
             listed = ", ".join(dirty[:8]) + (" …" if len(dirty) > 8 else "")
             raise RTError(STATE, f"commit your changes first (uncommitted: {listed})",
-                          "git add the files and git commit; the proof checks exactly what gets merged")
+                          f'git add + git commit, or let Roundtable commit them: rt_task close task="{t["id"]}" commit=true summary="..."')
         changed = [f["path"] for f in gitops.changed_files(ctx, t)]
         if not changed:
             raise RTError(STATE, f"{t['id']} has no committed changes on {branch}", "commit your work, then close")
@@ -399,7 +416,7 @@ def close(ctx, task, summary) -> Result:
         t = get(ctx, t["id"])
     run_id = proofs.start(ctx, t)
     row = proofs.wait(ctx, run_id, ctx.setting("proof", "wait_seconds"))
-    return Result(proofs.describe(ctx, row), {"task": t["id"], "proof_run": run_id, "status": row["status"]})
+    return Result(note + proofs.describe(ctx, row), {"task": t["id"], "proof_run": run_id, "status": row["status"]})
 
 
 @op("task.show", who=ANY, tool="rt_task", action="show", frozen_ok=True, desc="Read a task at zoom L0, L1 or L2",
