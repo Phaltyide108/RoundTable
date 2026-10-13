@@ -44,7 +44,7 @@ def collect(ctx) -> list[tuple[str, str, str]]:
         items.append((f"review:{a['target']}:{a['round']}", f"Roundtable: review {a['target']}", f"no seat could review it: rt review get {a['target']}"))
     for q in ctx.db.all("SELECT * FROM level_requests WHERE status = 'pending'"):
         items.append((f"levelreq:{q['id']}", "Roundtable: deeper review?", f"{q['seat']} asks for {q['level']} review on {q['task']}: rt review level-decide {q['id']} approve|deny"))
-    for m in ctx.db.all("SELECT * FROM amendments WHERE status = 'pending' AND needs LIKE '%\"human\"%'"):
+    for m in ctx.db.all("SELECT * FROM amendments WHERE status = 'pending' AND instr(needs, '\"human\"') > 0"):
         items.append((f"amend:{m['id']}", "Roundtable: plan change needs you", f"{m['id']} {m['kind']} {m['task'] or ''}: rt plan amend-decide {m['id']} approve|reject"))
     for t in ctx.db.all("SELECT * FROM tasks WHERE status IN ('claimed','changes_requested')"):
         last = ctx.db.one("SELECT id, at FROM events WHERE task = ? ORDER BY id DESC LIMIT 1", (t["id"],))

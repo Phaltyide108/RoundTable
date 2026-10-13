@@ -169,7 +169,8 @@ def list_seats(ctx) -> Result:
     for r in rows:
         live = "live" if is_live(ctx, r) else ("paused" if r["status"] == "paused" else "idle")
         doing = f" · now: {r['now_doing']}" if r["now_doing"] else ""
-        lines.append(f"{r['handle']:<10} {r['model']} · {r['company']} · {r['app']} · {r['roles']} · {live} · seen {util.human_ago(r['last_seen'])}{doing}")
+        folder = f" · folder {r['worktree']}" if r["worktree"] and ctx.is_human else ""
+        lines.append(f"{r['handle']:<10} {r['model']} · {r['company']} · {r['app']} · {r['roles']} · {live} · seen {util.human_ago(r['last_seen'])}{folder}{doing}")
         data.append({k: r[k] for k in ("handle", "model", "company", "app", "roles", "status", "worktree", "branch", "last_seen", "now_doing")} | {"live": live == "live"})
     return Result("\n".join(lines), {"seats": data})
 

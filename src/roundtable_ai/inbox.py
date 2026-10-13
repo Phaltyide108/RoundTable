@@ -54,7 +54,7 @@ def counts(ctx, handle: str) -> dict:
         ):
             votes += 1
     plan_action = _plan_action(ctx, handle)
-    alerts = unacked_alerts(ctx, handle, 1)
+    alerts = unacked_alerts(ctx, handle, 3)  # levels 1-2 are informational: they show in the digest, no ack needed
     frozen = ctx.db.meta_get("frozen", "0") == "1"
     return {
         "new": new,

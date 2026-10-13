@@ -25,7 +25,7 @@ def waiting_on_human(ctx) -> list[str]:
         items.append(f"review {a['target']} (no seat could): rt review submit {a['target']} approve|changes")
     for q in ctx.db.all("SELECT id, task, level, seat FROM level_requests WHERE status = 'pending'"):
         items.append(f"{q['seat']} asks for {q['level']} review on {q['task']}: rt review level-decide {q['id']} approve|deny")
-    for m in ctx.db.all("SELECT id, kind, task FROM amendments WHERE status = 'pending' AND needs LIKE '%\"human\"%'"):
+    for m in ctx.db.all("SELECT id, kind, task FROM amendments WHERE status = 'pending' AND instr(needs, '\"human\"') > 0"):
         items.append(f"amendment {m['id']} ({m['kind']} {m['task'] or ''}) needs you: rt plan amend-decide {m['id']} approve|reject")
     for a in ctx.db.all("SELECT id, level, title FROM alerts WHERE status != 'resolved' AND level >= 4"):
         items.append(f"alert {a['id']} L{a['level']}: {util.one_line(a['title'], 50)} · rt alert show {a['id']}")

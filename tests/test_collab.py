@@ -244,5 +244,13 @@ def test_amendments(rt):
     assert util.jload(rt.q("SELECT files FROM tasks WHERE id='T1'")[0]["files"]) == ["src/a.py", "src/c.py"]
     res = rt.seat("opus", "plan.amend", kind="change_proof", task="T1", change={"proof": ["true"]}, reason="simpler")
     assert "human" in res.text
+    assert "M3" in rt.human("admin.status").text  # shows up under "waiting on you"
+    from roundtable_ai import watch
+
+    ctx = rt.ctx()
+    try:
+        assert any(k == "amend:M3" for k, _, _ in watch.collect(ctx))
+    finally:
+        ctx.close()
     rt.human("plan.amend_decide", id="M3", decision="reject")
     assert util.jload(rt.q("SELECT proof FROM tasks WHERE id='T1'")[0]["proof"]) != ["true"]

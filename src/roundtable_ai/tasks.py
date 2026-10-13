@@ -271,7 +271,7 @@ def claim(ctx, task) -> Result:
     if "build" not in seats.roles_of(srow):
         raise RTError(FORBIDDEN, f"seat {seat} plans and reviews only (no build role)", "review or suggest instead")
     behind = ctx.db.scalar(
-        "SELECT COUNT(*) FROM events WHERE id > ? AND actor != ? AND audience LIKE ?", (srow["bookmark"], seat, f'%"{seat}"%'), 0
+        "SELECT COUNT(*) FROM events WHERE id > ? AND actor != ? AND instr(audience, ?) > 0", (srow["bookmark"], seat, f'"{seat}"'), 0
     )
     if behind:
         raise RTError(STATE, f"you have {behind} unread update(s) meant for you", "call rt_sync first, then claim")
