@@ -45,4 +45,13 @@ Every failure has a defined outcome and a message that says what to do next. Mos
 | Text from one model tries to instruct another | Shown marked as data; commands only ever come from the plan you approved |
 | New MCP protocol (2026-07-28) clients | Roundtable answers their opening `server/discover` probe with "method not found", so they fall back to the standard handshake. Tested with the official client 1.30.0 and 2.x, and with Claude Code 2.1.296 |
 | The server can't find the project | It still starts and lists its tools; every call explains how to fix the setup |
+| A model files the same bug twice | Detected by title; the existing backlog item is returned |
+| A model writes instructions into project memory | Shown to other models marked as data; only your notes are pinned by default; you can forget any note |
+| A link would create a dependency cycle, or a running task would suddenly wait | Refused, naming the cycle; tasks already under way cannot gain a dependency |
+| Database from Roundtable 0.1 | Migrated to schema 2 on first open, after a backup (`roundtable.db.backup-v1`) |
+| Old model windows still running 0.1 after an upgrade | They get "set up by a newer Roundtable: upgrade"; close and start them again |
+| Dashboard: no terminal program, or the terminal exits with an error | The page says so and shows the command to paste, instead of failing silently |
+| Dashboard opened outside a project, or on a folder inside a repository or a working copy | Set-up screen that points at the right folder; nothing is created until you click |
+| A website tries to use the dashboard | Refused: wrong Host header, wrong origin, or missing page token |
+| A per-seat settings file (`.mcp.json`, `.gemini/settings.json`, ...) is tracked by the project | Left alone; the model page shows what to add by hand |
 | An unexpected bug | Logged to `.roundtable/logs/errors.log`; the model gets a clear error and its session keeps working |
