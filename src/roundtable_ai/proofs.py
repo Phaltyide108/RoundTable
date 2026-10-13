@@ -112,7 +112,9 @@ def _run_one(cmd: str, workdir: Path, timeout: int, tail: deque) -> tuple[str, i
     env = dict(os.environ)
     for var in ("RT_HOME", "RT_SEAT", "RT_SEAT_KEY"):  # the project's tests must not act as the seat that started them
         env.pop(var, None)
-    env.update({"RT_PROOF": "1", "CI": "1", "PYTHONDONTWRITEBYTECODE": "1"})  # CI=1: no interactive test runners; no .pyc litter
+    # CI=1: no interactive test runners. No .pyc litter. Unbuffered Python output, so a run that hangs
+    # and is stopped still shows what it printed.
+    env.update({"RT_PROOF": "1", "CI": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"})
     kwargs: dict = {"cwd": str(workdir), "env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE,
                     "stderr": subprocess.STDOUT, "shell": True}
     if os.name == "nt":

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import socketserver
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -201,6 +202,17 @@ def make_handler(home, token: str, port_ref: dict):
     return Handler
 
 
+class _LocalServer(ThreadingHTTPServer):
+    """HTTPServer.server_bind looks up the host's full name, which can stall for
+    many seconds on some Macs. We only ever bind 127.0.0.1, so skip it."""
+
+    daemon_threads = True
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+
 def serve(home, port: int, *, open_browser: bool = True, ready: threading.Event | None = None, server_ref: dict | None = None) -> int:
     token = secrets.token_urlsafe(24)
     port_ref = {"port": port}
@@ -208,7 +220,7 @@ def serve(home, port: int, *, open_browser: bool = True, ready: threading.Event 
     for p in range(port, port + 20):
         try:
             port_ref["port"] = p
-            httpd = ThreadingHTTPServer(("127.0.0.1", p), make_handler(home, token, port_ref))
+            httpd = _LocalServer(("127.0.0.1", p), make_handler(home, token, port_ref))
             break
         except OSError:
             continue
