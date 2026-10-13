@@ -172,7 +172,8 @@ def test_a_terminal_that_fails_is_reported(tmp_path, monkeypatch):
     bad = bin_dir / "xterm"
     bad.write_text("#!/bin/sh\nexit 2\n")
     bad.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin")
+    # only the fake terminal on PATH: a real one (gnome-terminal...) would be picked first and open a window
+    monkeypatch.setenv("PATH", str(bin_dir))
     monkeypatch.delenv("TERMINAL", raising=False)
     monkeypatch.setattr(sys, "platform", "linux")
     from roundtable_ai.errors import RTError
@@ -180,3 +181,32 @@ def test_a_terminal_that_fails_is_reported(tmp_path, monkeypatch):
     with pytest.raises(RTError) as exc:
         desktop.open_terminal(["rt", "launch", "opus"], tmp_path, "Roundtable opus")
     assert "exit 2" in exc.value.message and "rt launch opus" in exc.value.hint
+
+
+def test_dashboard_speaks_plainly_and_links_to_real_pages(rt, fake_home):
+    """Every link in 'what needs you' opens one of the dashboard's sections, labels avoid jargon,
+    and the page loads nothing from outside this computer."""
+    import re
+
+    from roundtable_ai import ui_state
+
+    rt.add_seat("opus")
+    rt.human("task.file", title="Write docs", kind="docs")
+    ctx = rt.ctx()
+    try:
+        st = ui_state.build(ctx)
+    finally:
+        ctx.close()
+    pages = {"home", "inbox", "team", "plan", "work", "usage", "notes", "history", "settings", "help", "more", "switch"}
+    gos = [a["go"] for n in st["needs"] for a in n["actions"] if a.get("go")]
+    assert gos and all(g.split("/")[0] in pages for g in gos), gos
+    words = " ".join([*ui_state.STATUS_LABEL.values(), *ui_state.STAGE_LABEL.values(), *(n["title"] for n in st["needs"])]).lower()
+    for jargon in ("backlog", "lock", "seat", "proof", "review depth"):
+        assert jargon not in words, jargon
+    ui = dashboard.UI_DIR
+    js = (ui / "app.js").read_text(encoding="utf-8")
+    for page in pages:
+        assert f"PAGES.{page} =" in js, page
+    for name in ("index.html", "app.css", "app.js"):
+        text = (ui / name).read_text(encoding="utf-8")
+        assert not re.search(r"""(src|href)=["']https?:|url\(\s*["']?https?:|@import""", text), name

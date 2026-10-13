@@ -49,7 +49,7 @@ Legend: **Gap** = they have it, we don't. **Partial** = we have a smaller versio
 |---|---|---|
 | Free-form messages with threads, To/Cc/Bcc, importance | Yes | **Partial.** Directed suggestions that must be answered, alerts with levels 1-5, and votes. No general chat threads or Cc. |
 | Attachments and images in messages | Yes | **Gap.** Text only. |
-| Full-text search of past messages | SQLite FTS5 | **Partial** (0.2): text search of the history on the dashboard's Activity page; `rt log` filters by time and task. |
+| Full-text search of past messages | SQLite FTS5 | **Partial** (0.2): text search of the history on the dashboard's History page; `rt log` filters by time and task. |
 | Shared vs exclusive file reservations | Both | **Partial.** Leases are exclusive; reading is always allowed, so "shared" is implied. |
 | Contact policies (who may message whom) | Yes | Not needed: one project, every seat is a teammate. |
 | Human can write to agents from the web UI | Overseer compose screen | **Partial** (0.2): raise alerts, file tasks, add memory and decide everything from the dashboard; no free-form message box. |

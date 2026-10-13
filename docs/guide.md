@@ -9,10 +9,10 @@ You can do everything from the dashboard (`rt ui`) or from the terminal. This gu
 | Step | Dashboard | Terminal |
 | --- | --- | --- |
 | 1. Set up the project | open `rt ui` in the folder, **Set up Roundtable in this folder** | `rt init` |
-| 2. Add two or more models | **Models → Add a model** | `rt seat add opus --model claude-opus-5-5 --app claude-code` |
-| 3. Start each one | **Models → Start** (terminal, VS Code or Cursor opens for you) | `rt launch opus` (one terminal each) |
-| 4. Give them a goal | **Plan → Start a plan** | `rt goal "what to build" --review mid` |
-| 5. Lock the plan they agree on | **Plan → Lock the plan** after reading the test commands | `rt plan view`, then `rt plan lock` |
+| 2. Add two or more models | **Team → Add an AI model** | `rt seat add opus --model claude-opus-5-5 --app claude-code` |
+| 3. Start each one | **Team → Start** (terminal, VS Code or Cursor opens for you) | `rt launch opus` (one terminal each) |
+| 4. Give them a goal | **Plan → Start planning** | `rt goal "what to build" --review mid` |
+| 5. Approve the plan they agree on | **Inbox / Plan → Approve the plan** after reading the test commands | `rt plan view`, then `rt plan lock` |
 
 After that the models claim tasks, work in their own folders, and close tasks. Roundtable runs each task's test command itself, a model from another company reviews it at the depth you chose, and it is merged into your branch.
 
@@ -20,21 +20,24 @@ After that the models claim tasks, work in their own folders, and close tasks. R
 
 ## Dashboard pages
 
+Five sections, plus **More** for the pages you need less often. On a phone they sit in a tab bar at the bottom. Every page has a **?** button that explains it in two or three sentences.
+
 | Page | What it is for | Terminal |
 | --- | --- | --- |
-| Overview | What needs you right now, with the button that settles it; the table (who is doing what); work in progress; latest activity | `rt status` |
-| Plan | Start a plan; follow drafts, critiques and approvals; read each model's own plan; lock; approve changes to a locked plan | `rt goal`, `rt plan view/lock/continue/cancel/amend-decide` |
-| Tasks | Every task by priority; filter by status, kind and text; file new work; accept backlog items; edit, link, reassign, cancel; test runs, reviews and history per task | `rt task list/show/file/accept/edit/link/reassign/cancel/merge` |
-| Reviews | Reviews that came to you (with the diff), requests for deeper reviews, what models are reviewing now | `rt review queue/get/submit/level-decide` |
-| Alerts and votes | Problems raised at levels 1-5; resolve or change their level; raise your own; decide votes | `rt alert ...`, `rt vote ...` |
-| Models | Add, start, pause, free, remove models; connect apps you open yourself | `rt seat ...`, `rt launch`, `rt setup` |
-| Usage | Each model's context, 5-hour and 7-day limits, and what coordinating cost | `rt usage` |
-| Memory | Notes every model sees when it joins | `rt memory add/list/pin/forget` |
-| Activity | Full history with search | `rt log` |
-| Settings | Every setting with an explanation; setup checks; compaction and export | `rt config`, `rt doctor`, `rt compact`, `rt export` |
-| Guide | This page, inside the dashboard | |
+| Home | What is happening, the one thing to do next (one big button), the steps from adding AIs to finished work, who is doing what at the table, latest activity | `rt status` |
+| Inbox | Every decision in one place: approve the plan, check changes that came to you, accept or turn down work the AIs found, problems (alerts 1-5) and votes; tell the AIs about a problem yourself | `rt plan lock`, `rt review ...`, `rt task accept`, `rt alert ...`, `rt vote ...` |
+| Team | Add an AI (pick the app, then name and model, filled in for you); start, pause, disconnect an old chat, remove; connect apps you open yourself | `rt seat ...`, `rt launch`, `rt setup` |
+| Plan | Write the goal and choose Light / Standard / Thorough checking; follow the drafts, comments and agreement; read each AI's own plan; approve; cancel | `rt goal`, `rt plan view/lock/continue/cancel` |
+| Work | A board: To do, In progress, Checking (tests and review), Done. Each task's page has its test runs, progress notes, checks by other AIs, changed files and history; add, edit, link, reassign, cancel | `rt task list/show/file/edit/link/reassign/cancel/merge` |
+| More → Usage | Each AI's chat size, 5-hour and weekly limits, and what coordinating cost | `rt usage` |
+| More → Notes | Notes every AI reads when it joins | `rt memory add/list/pin/forget` |
+| More → History | Everything that happened, with search | `rt log` |
+| More → Settings | Every setting in plain words; setup checks; tidy history; export | `rt config`, `rt doctor`, `rt compact`, `rt export` |
+| More → Help | How it works, the words the AIs use, and the terminal command for every button | |
 
-The red **Stop all models** button (`rt freeze`) makes every model's next call return STOP until you let them work again (`rt unfreeze`).
+The **Stop all AIs** button at the top (`rt freeze`) makes every AI's next call return STOP until you let them work again (`rt unfreeze`).
+
+The dashboard uses plain words; the terminal and the AIs' own messages use the older names. Approve the plan = lock. Tests = proof. Light / Standard / Thorough checking = review depth low / mid / high. Work your AIs found = backlog. An AI on the team = a seat.
 
 ## Words you will see
 
@@ -50,7 +53,7 @@ The red **Stop all models** button (`rt freeze`) makes every model's next call r
 
 ## When something looks wrong
 
-- **Settings → Run the checks** (or `rt doctor`) looks at git, working copies, app connections and the commit guard, and prints the fix for each problem.
-- A model says another chat holds its seat: **Models → Free the seat** (`rt seat release opus`), then start it again.
-- A task waits to merge: your project folder has uncommitted changes or is on another branch. Fix that, then **Try the merge again** (`rt task merge`).
+- **More → Settings → Run the checks** (or `rt doctor`) looks at git, working copies, app connections and the commit guard, and prints the fix for each problem.
+- A model says another chat holds its seat: **Team → ⋯ → Disconnect its old chat** (`rt seat release opus`), then start it again.
+- A task waits to merge: your project folder has uncommitted changes or is on another branch. Fix that, then **Inbox → Try again** (`rt task merge`).
 - More in [troubleshooting.md](troubleshooting.md).

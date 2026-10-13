@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **A dashboard for people who have never used it.** Five sections in plain words: Home, Inbox, Team, Plan and Work, with Usage, Notes, History, Settings and Help under More (a bottom tab bar on phones).
+  - **Home** says what is happening, gives one next step with one button, and shows the journey: Add AI models, Start them, Give a goal, They plan, Approve the plan, They build.
+  - **Inbox** gathers every decision: approving the plan, checking changes, work the AIs found, problems and votes.
+  - **Work** is a board: To do / In progress / Checking / Done.
+  - **Adding an AI** is a two-step picker (app tiles for terminal, editor and desktop app; name and model filled in; advanced options hidden).
+  - Every page has a **?** that explains it. Wording is plain throughout: "Approve the plan", "tests", "Light / Standard / Thorough checking", "Work your AIs found".
+  - Old dashboard links still work.
+
 ## 0.2.0 (2026-10-13)
 
 - **Dashboard first.** `rt ui` now covers every human action: set up a folder, add and start models (opens a terminal window, VS Code or Cursor), connect apps, start and lock plans after reading the test commands, file and accept tasks, review with diffs, alerts and votes, usage, memory, history search, settings with setup checks, and a built-in guide. Works outside a project, remembers recent projects, light and dark, phones.

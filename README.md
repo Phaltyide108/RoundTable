@@ -65,14 +65,14 @@ In your project's main folder (a git repository with at least one commit):
 rt ui
 ```
 
-Your browser opens the dashboard. Everything is a button from there:
+Your browser opens the dashboard. **Home** always shows the one thing to do next, with a single button, and a line of steps from "Add AI models" to "They build":
 
 1. **Set up Roundtable in this folder** (it only adds a hidden `.roundtable` folder).
-2. **Models → Add a model**, two or more, ideally from different companies. Pick where each runs: Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps.
-3. **Start** each one. Terminal apps open in a new terminal window in the model's own working copy, already joined. Editors open the right folder, and the page shows the one message to send.
-4. **Plan → Start a plan**: write the goal and choose the review depth.
-5. When the models agree, **Overview** shows "The plan is ready for you". Read the tasks and the test commands they will run, tick the box, **Lock the plan**.
-6. Watch work move on the Overview: who is doing what at the table, what needs you, tests, reviews and merges. The **Guide** page explains every word and lists the terminal command for every button.
+2. **Team → Add an AI model**, two or more, ideally from different companies. Pick the app it runs in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps); the name and model are filled in for you.
+3. **Start** each one. Terminal apps open in a new terminal window in the AI's own copy of the project, already connected. Editors open the right folder, and the page shows the one message to send.
+4. **Plan**: write the goal and choose how carefully they check each other (Light, Standard or Thorough).
+5. When the AIs agree, the plan lands in your **Inbox**. Read the tasks and the test commands they will run, tick the box, **Approve the plan**.
+6. Watch the **Work** board move from To do to Done. Every decision (changes to check, work the AIs found, problems, votes) arrives in the Inbox. Each page has a **?** that explains it; **More → Help** lists the terminal command for every button.
 
 ## Quickstart: the terminal
 
@@ -106,7 +106,7 @@ Plain `rt` tells you the next step; `rt --help` groups the commands by purpose.
 | Cursor | `cursor` | Start opens the folder in Cursor | yes (per-seat `.cursor/mcp.json`) |
 | Claude desktop app | `claude-app` | `rt setup claude-app` once, new chat | send "join Roundtable as …"; plans and reviews only |
 | ChatGPT desktop app, Codex mode | `codex-app` | `rt setup codex` once, open the folder | send "join Roundtable as …" |
-| Anything else with MCP | `other` | add the server by hand (the Models page shows what to enter) | send "join Roundtable as …" |
+| Anything else with MCP | `other` | add the server by hand (the Team page shows what to enter) | send "join Roundtable as …" |
 
 Per-seat settings files are written into that model's working copy and hidden from git (`.git/info/exclude`), so they never show up as changes. Claude Code and Codex are verified end to end; the other apps' settings formats follow their current documentation.
 
@@ -154,7 +154,7 @@ Any seat can raise an alert. Levels 4 and 5 need evidence (a file and line, or c
 - **Discovered work.** A model that finds a bug outside its task files it (`rt_task file`) instead of fixing it on the side or forgetting it. It lands in your backlog; you accept it with its files and test command in one click (`rt task accept T9`).
 - **Project memory.** `rt memory add "tests need DATABASE_URL"`, or a model's `rt_memory add`. Every model sees the pinned notes and the newest others when it joins, so a fresh chat starts with what earlier chats learned. Notes from models are shown to other models as data, not instructions.
 - **Compaction.** `rt compact` keeps each finished task's outcome and drops the step-by-step detail of work finished more than 30 days ago.
-- **Search and filters.** `rt task list --status backlog --kind bug --label auth --priority 1`, and full-text search of the history on the Activity page.
+- **Search and filters.** `rt task list --status backlog --kind bug --label auth --priority 1`, and full-text search on the History page.
 
 ## Usage, context and limits
 

@@ -51,15 +51,15 @@ rt ui
 Your browser opens the dashboard.
 
 1. Click **Set up Roundtable in this folder**.
-2. **Models → Add a model**: name `opus`, where it runs **Claude Code in a terminal**, model `claude-opus-5-5`. **Add model**.
-3. **Add a model** again: name `sol`, **Codex in a terminal**, model `gpt-6.1-sol` (or the name `/model` showed). **Add model**.
+2. **Team → Add an AI model**, pick **Claude Code** under *In a terminal*. The name (`opus`) and model (`claude-opus-5-5`) are filled in. **Add this AI**.
+3. **Add an AI model** again: **Codex** under *In a terminal*; name `sol`, model `gpt-6.1-sol` (or the name `/model` showed). **Add this AI**.
 4. Click **Start in a terminal** on each. A terminal window opens per model, already in its own folder and joined. Allow the roundtable tools when the app asks.
 
 Terminal alternative: `rt init`, `rt seat add opus --model claude-opus-5-5 --app claude-code`, `rt seat add sol --model gpt-6.1-sol --app codex-cli`, then `rt launch opus` and `rt launch sol` in two terminals.
 
 ## 4. Give them the goal
 
-**Plan → Start a plan.** Paste this as the goal, choose **Mid** review depth, click **Start planning**:
+**Plan.** Paste this as the goal, choose **Standard** checking (review depth mid), click **Start planning**:
 
 ```text
 Close two gaps from docs/comparison.md, each with tests and following AGENTS.md. (1) Text search in the event log: rt log --grep TEXT, case-insensitive, combinable with --since and --task. (2) Database backups: rt backup copies the project's Roundtable database with the sqlite3 backup API into .roundtable/backups/ with a timestamped name and keeps the newest 10; rt doctor reports the age of the newest backup. Use this proof command for every task: uv run --no-project --python 3.12 --with pytest -- python -m pytest -q. docs/cli.md is generated: only the last task regenerates it with python scripts/gen_docs.py.
@@ -69,10 +69,10 @@ Terminal alternative: `rt goal "<the text above>" --review mid`.
 
 ## 5. Watch and decide
 
-- **Overview** shows what needs you, and the table: who is writing, critiquing, working or reviewing.
-- When the plan is ready, **Overview** says so. Open **Plan**, read the tasks and the test commands, tick the box, **Lock the plan** (terminal: `rt plan view`, `rt plan lock`).
+- **Home** shows your next step, and the table: who is writing, commenting, working or checking.
+- When the plan is ready, **Home** and the **Inbox** say so. Read the tasks and the test commands, tick the box, **Approve the plan** (terminal: `rt plan view`, `rt plan lock`).
 - Then each model claims a task, works in its own folder, and closes it. Roundtable runs the tests; the other model reviews; the task merges into `main`.
-- If a model files a bug it found, it appears in **Tasks → Backlog**: accept it or cancel it.
+- If a model files a bug it found, it appears in the **Inbox** under *Work your AIs found*: accept it or say it is not needed.
 
 ## 6. Keep them moving
 

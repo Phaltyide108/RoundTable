@@ -13,21 +13,22 @@ from typing import Any
 from . import __version__, apps, util
 
 STAGE_LABEL = {
-    "drafting": "Models are writing their plans",
-    "critique": "Models are critiquing each other's plans",
-    "merging": "The chair is merging the plans",
-    "proposed": "Models are approving the merged plan",
-    "voting": "Models are voting on objections",
-    "awaiting_human": "Ready for you to lock",
-    "locked": "Locked: models are building",
+    "drafting": "Each AI is writing its own plan",
+    "critique": "The AIs are commenting on each other's plans",
+    "merging": "One AI is combining the plans into one",
+    "proposed": "The AIs are agreeing on the combined plan",
+    "voting": "The AIs are voting on an objection",
+    "awaiting_human": "Ready for you to approve",
+    "locked": "Approved: the AIs are building",
     "done": "Done",
     "cancelled": "Cancelled",
 }
+LEVEL_WORD = {"low": "light", "mid": "standard", "high": "thorough"}
 STAGES = ("drafting", "critique", "merging", "proposed", "awaiting_human", "locked")
 
 STATUS_LABEL = {
-    "backlog": "Backlog", "open": "Waiting", "ready": "Ready", "claimed": "In progress", "changes_requested": "Changes requested",
-    "proving": "Testing", "in_review": "In review", "merge_blocked": "Waiting to merge", "done": "Done", "cancelled": "Cancelled",
+    "backlog": "Waiting for your OK", "open": "Waiting", "ready": "Ready to start", "claimed": "In progress", "changes_requested": "Fixing review notes",
+    "proving": "Running tests", "in_review": "Being checked", "merge_blocked": "Can't merge yet", "done": "Done", "cancelled": "Cancelled",
 }
 
 _probe_cache: dict[str, tuple[float, bool]] = {}
@@ -167,23 +168,23 @@ def _needs(ctx, plan, tasks, alerts, votes, seats) -> list[dict]:
     """What waits on the human, most urgent first, each with the buttons that settle it."""
     items: list[dict] = []
     if ctx.db.meta_get("frozen") == "1":
-        items.append({"key": "frozen", "tone": "stop", "title": "All models are stopped",
+        items.append({"key": "frozen", "tone": "stop", "title": "All AIs are stopped",
                       "body": ctx.db.meta_get("frozen_reason") or "You stopped them.",
                       "actions": [{"label": "Let them work again", "op": "admin.unfreeze", "params": {}, "style": "primary"}]})
     for a in alerts:
         if a["level"] >= 4:
             items.append({"key": f"alert:{a['id']}", "tone": "stop" if a["level"] == 5 else "warn",
-                          "title": f"Level {a['level']} alert from {a['by']}: {a['title']}", "body": a["description"],
-                          "go": f"alerts/{a['id']}", "actions": [{"label": "Open alert", "go": f"alerts/{a['id']}"}]})
+                          "title": f"{a['by']} reports a problem: {a['title']}", "body": a["description"],
+                          "go": "inbox", "actions": [{"label": "Open in your inbox", "go": "inbox"}]})
         if a["proposed"]:
             items.append({"key": f"alert-level:{a['id']}", "tone": "decide",
-                          "title": f"{a['proposed_by']} suggests level {a['proposed']} for {a['id']} (now {a['level']})", "body": a["title"],
+                          "title": f"{a['proposed_by']} thinks a problem is more serious (level {a['proposed']}, now {a['level']})", "body": a["title"],
                           "actions": [{"label": f"Change to level {a['proposed']}", "op": "alert.set_level", "params": {"id": a["id"], "level": a["proposed"]}, "style": "primary"},
-                                      {"label": "Open alert", "go": f"alerts/{a['id']}"}]})
+                                      {"label": "Open in your inbox", "go": "inbox"}]})
     if plan and plan["stage"] == "awaiting_human":
         items.append({"key": f"plan:{plan['id']}:v{plan['version']}", "tone": "decide", "title": "The plan is ready for you",
-                      "body": f"{len(plan['tasks'])} tasks. Check the test commands it will run, then lock it.",
-                      "actions": [{"label": "Review and lock", "go": "plan", "style": "primary"}]})
+                      "body": f"{len(plan['tasks'])} tasks. Check the test commands it will run, then approve it.",
+                      "actions": [{"label": "Read and approve", "go": "plan", "style": "primary"}]})
     if plan and plan["overdue"]:
         missing = [p["seat"] for p in plan["people"] if p["planner"] and not p["drafted"]]
         items.append({"key": f"plan:{plan['id']}:overdue", "tone": "decide", "title": "Some plans are late",
@@ -192,47 +193,47 @@ def _needs(ctx, plan, tasks, alerts, votes, seats) -> list[dict]:
     if plan:
         for m in plan["amendments"]:
             if m["human"]:
-                items.append({"key": f"amend:{m['id']}", "tone": "decide", "title": f"{m['by']} wants to change the plan ({m['kind'].replace('_', ' ')}{' ' + m['task'] if m['task'] else ''})",
+                items.append({"key": f"amend:{m['id']}", "tone": "decide", "title": f"{m['by']} wants to change the approved plan ({m['kind'].replace('_', ' ')}{' ' + m['task'] if m['task'] else ''})",
                               "body": m["reason"], "actions": [
                                   {"label": "Approve change", "op": "plan.amend_decide", "params": {"id": m["id"], "decision": "approve"}, "style": "primary"},
                                   {"label": "Reject", "op": "plan.amend_decide", "params": {"id": m["id"], "decision": "reject"}}]})
     for v in votes:
         if v["status"] == "tied":
             items.append({"key": f"vote:{v['id']}", "tone": "decide", "title": f"Tied vote: {v['topic']}",
-                          "body": "The models are split. Read their reasons and choose.", "actions": [{"label": "Decide", "go": "alerts", "style": "primary"}]})
+                          "body": "The models are split. Read their reasons and choose.", "actions": [{"label": "Decide", "go": "inbox", "style": "primary"}]})
     for r in ctx.db.all("SELECT a.target, t.title FROM assignments a JOIN tasks t ON t.id = a.target WHERE a.seat = 'human' AND a.kind = 'review' AND a.status = 'open'"):
-        items.append({"key": f"review:{r['target']}", "tone": "decide", "title": f"Review {r['target']}: {r['title']}",
-                      "body": "No model from another company could review it, so it comes to you.",
-                      "actions": [{"label": "Review", "go": f"reviews/{r['target']}", "style": "primary"}]})
+        items.append({"key": f"review:{r['target']}", "tone": "decide", "title": f"Check the changes in {r['target']}: {r['title']}",
+                      "body": "No AI from another company could check it, so it comes to you.",
+                      "actions": [{"label": "Review changes", "go": f"inbox/review/{r['target']}", "style": "primary"}]})
     for q in ctx.db.all("SELECT * FROM level_requests WHERE status = 'pending' ORDER BY created_at"):
-        items.append({"key": f"level:{q['id']}", "tone": "decide", "title": f"{q['seat']} asks for a {q['level']} review of {q['task']}",
+        items.append({"key": f"level:{q['id']}", "tone": "decide", "title": f"{q['seat']} asks for {LEVEL_WORD.get(q['level'], q['level'])} checking of {q['task']}",
                       "body": q["reason"], "actions": [
                           {"label": "Allow", "op": "review.level_decide", "params": {"id": q["id"], "decision": "approve"}, "style": "primary"},
-                          {"label": "Keep current depth", "op": "review.level_decide", "params": {"id": q["id"], "decision": "deny"}}]})
+                          {"label": "Keep it as it is", "op": "review.level_decide", "params": {"id": q["id"], "decision": "deny"}}]})
     for t in tasks:
         if t["status"] == "merge_blocked":
-            items.append({"key": f"merge:{t['id']}", "tone": "warn", "title": f"{t['id']} is approved but cannot merge yet",
+            items.append({"key": f"merge:{t['id']}", "tone": "warn", "title": f"{t['id']} is approved but can't be merged yet",
                           "body": t["merge_note"] or "Your main folder has changes or is on another branch.",
                           "actions": [{"label": "Try the merge again", "op": "task.merge", "params": {"task": t["id"]}, "style": "primary"},
-                                      {"label": "Details", "go": f"tasks/{t['id']}"}]})
+                                      {"label": "Details", "go": f"work/{t['id']}"}]})
     backlog = [t for t in tasks if t["status"] == "backlog"]
     if backlog:
-        items.append({"key": "backlog", "tone": "info", "title": f"{len(backlog)} new item{'s' if len(backlog) != 1 else ''} in the backlog",
-                      "body": "Models filed work they found. Accept it, or cancel what you do not want.",
-                      "actions": [{"label": "Open backlog", "go": "tasks/backlog", "style": "primary"}]})
+        items.append({"key": "backlog", "tone": "info", "title": f"Your AIs found {len(backlog)} more thing{'s' if len(backlog) != 1 else ''} to do",
+                      "body": "Accept what you want done; say no to the rest.",
+                      "actions": [{"label": "Open your inbox", "go": "inbox", "style": "primary"}]})
     if not seats:
-        items.append({"key": "no-seats", "tone": "info", "title": "Add the models that will work together",
+        items.append({"key": "no-seats", "tone": "info", "title": "Add the AI models that will work together",
                       "body": "Two or more, ideally from different companies, so they check each other.",
-                      "actions": [{"label": "Add a model", "go": "models/add", "style": "primary"}]})
+                      "actions": [{"label": "Add an AI model", "go": "team/add", "style": "primary"}]})
     elif not plan or plan["stage"] in ("done", "cancelled"):
-        items.append({"key": "no-plan", "tone": "info", "title": "Give the models a goal",
-                      "body": "They each write a plan without seeing the others', critique each other, and agree on one for you to lock.",
+        items.append({"key": "no-plan", "tone": "info", "title": "Give your AIs a goal",
+                      "body": "They each write a plan without seeing the others', comment on each other's, and agree on one for you to approve.",
                       "actions": [{"label": "Start a plan", "go": "plan", "style": "primary"}]})
     never = [s["handle"] for s in seats if s["status"] == "active" and not s["joined_ever"]]
     if never and seats:
         items.append({"key": "not-started", "tone": "info", "title": f"Not started yet: {', '.join(never)}",
-                      "body": "Each model works in its own app. Start it once and it joins the table.",
-                      "actions": [{"label": "Start models", "go": "models", "style": "primary"}]})
+                      "body": "Each AI works in its own app. Start it once and it joins the table.",
+                      "actions": [{"label": "Start them", "go": "team", "style": "primary"}]})
     return items
 
 
@@ -243,7 +244,7 @@ def _getting_started(seats, plan, tasks) -> list[dict]:
          "hint": "From different companies if you can: they review each other." + ("" if len(companies) > 1 or not seats else " All yours are from one company so far.")},
         {"title": "Start each model in its app", "done": bool(seats) and all(s["joined_ever"] for s in seats if s["status"] == "active")},
         {"title": "Give them a goal", "done": plan is not None},
-        {"title": "Lock the plan they agree on", "done": bool(plan and plan["stage"] in ("locked", "done"))},
+        {"title": "Approve the plan they agree on", "done": bool(plan and plan["stage"] in ("locked", "done"))},
         {"title": "Watch the first task get tested, reviewed and merged", "done": any(t["status"] == "done" for t in tasks)},
     ]
 
