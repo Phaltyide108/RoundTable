@@ -42,11 +42,8 @@ def config_set(ctx, key, value) -> Result:
     new = config.set_value(ctx.cfg.path, key, value)
     old = ctx.cfg.get(section, name)
     ctx.cfg.data[section][name] = new
-    with ctx.tx():
-        aud = None
-        if key == "review.level":
-            aud = [r["handle"] for r in ctx.db.all("SELECT handle FROM seats WHERE status = 'active'")]
-        events.emit(ctx, "human.config", f"the human set {key} = {config.toml_value(new)} (was {config.toml_value(old)})", audience=aud)
+    with ctx.tx():  # broadcast: every digest shows human.* events, but nobody is forced to sync first
+        events.emit(ctx, "human.config", f"the human set {key} = {config.toml_value(new)} (was {config.toml_value(old)})")
     return Result(f"{key} = {config.toml_value(new)}")
 
 

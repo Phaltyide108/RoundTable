@@ -26,6 +26,9 @@ else:  # pragma: no cover
     import tomli as tomllib
 
 
+PAST = {"add": "added", "update": "updated", "remove": "removed"}
+
+
 def server_command() -> tuple[str, list[str]]:
     return sys.executable, ["-m", "roundtable_ai", "mcp"]
 
@@ -107,7 +110,7 @@ def merge_json(path: Path, name: str, value: dict | None, *, dry_run: bool) -> s
         return f"would {action} '{name}' in {path}:\n" + json.dumps({name: value} if value else {name: before}, indent=2)
     b = _backup(path)
     _atomic_write(path, text)
-    return f"{action}d '{name}' in {path}" + (f" (backup: {b.name})" if b else "")
+    return f"{PAST[action]} '{name}' in {path}" + (f" (backup: {b.name})" if b else "")
 
 
 # ---------------------------------------------------------------- per app
@@ -230,7 +233,7 @@ def merge_codex(path: Path, name: str, home: Path | None, *, dry_run: bool) -> s
         return f"would {action} [mcp_servers.{name}] in {path}:\n" + (_toml_block(name, home) if home else "(entry removed)")
     b = _backup(path)
     _atomic_write(path, new)
-    return f"{action}d [mcp_servers.{name}] in {path}" + (f" (backup: {b.name})" if b else "")
+    return f"{PAST[action]} [mcp_servers.{name}] in {path}" + (f" (backup: {b.name})" if b else "")
 
 
 def setup(app: str, *, home: str | None = None, dry_run: bool = False, remove: bool = False) -> str:

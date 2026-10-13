@@ -57,8 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="rt", description="Roundtable: AI models planning, building and reviewing one project together.")
     p.add_argument("--version", action="version", version=f"roundtable {__version__}")
     p.add_argument("--home", help="project folder or its .roundtable folder (default: search upward from here)")
-    p.add_argument("--seat", help="act as this seat (for apps without MCP)")
-    p.add_argument("--key", help="act as the seat that joined with this key")
+    p.add_argument("--seat", dest="as_seat", help="act as this seat (for apps without MCP)")
+    p.add_argument("--key", dest="seat_key", help="act as the seat that joined with this key")
     p.add_argument("--json", action="store_true", help="print JSON")
     sub = p.add_subparsers(dest="cmd", metavar="command")
 
@@ -386,8 +386,8 @@ def _run(args) -> int:
         raise RTError("invalid", f"unknown command {args.cmd}", "rt --help")
     op, params = route
     params = {k: v for k, v in params.items() if v is not None}
-    seat = args.seat or os.environ.get("RT_SEAT") or None
-    key = args.key or os.environ.get("RT_SEAT_KEY") or None
+    seat = args.as_seat or os.environ.get("RT_SEAT") or None
+    key = args.seat_key or os.environ.get("RT_SEAT_KEY") or None
     if not seat and not key:
         seat = _seat_for_cwd(args.home)  # a model's shell inside its working copy acts as that seat
     as_seat = bool(seat or key)

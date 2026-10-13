@@ -266,6 +266,7 @@ def claim(ctx, task) -> Result:
     from . import alerts, gitops, leases, seats
 
     seat = ctx.actor
+    get(ctx, task)  # unknown task ids get the clearest error first
     srow = seats.get(ctx, seat)
     if "build" not in seats.roles_of(srow):
         raise RTError(FORBIDDEN, f"seat {seat} plans and reviews only (no build role)", "review or suggest instead")
