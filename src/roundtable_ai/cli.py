@@ -20,18 +20,58 @@ from .tasks import KINDS
 
 GETTING_STARTED = """Roundtable {version}: several AI models plan, build and review one project together.
 
-Getting started (in your project's main folder, a git repo with at least one commit):
-  rt init                                                   set up this project
-  rt seat add opus --model claude-opus-5-5 --app claude-code
-  rt seat add sol --model gpt-5.6-sol --app codex-cli       add as many seats as you like
-  rt setup claude-code   /   rt setup codex   /   rt setup claude-app
-  rt launch opus         (in one terminal)   rt launch sol   (in another)
-  rt goal "what you want built"                             seats draft plans blind
-  rt plan lock                                              after they agree; creates tasks
-  rt status · rt usage · rt watch · rt ui                   follow along
+The easy way: open the dashboard and click through it.
+  rt ui            opens it in your browser (it can also set up this folder)
 
-More: rt <command> --help, rt doctor if anything looks wrong.
+The same from the terminal, in your project's main folder:
+  rt init                                                    set up this folder
+  rt seat add opus --model claude-opus-5-5 --app claude-code add models (two or more)
+  rt seat add sol --model gpt-6.1-sol --app codex-cli
+  rt launch opus      (one terminal per model)               start each one
+  rt goal "what you want built"                              they plan together
+  rt plan lock                                               you approve; they build
+  rt status                                                  what needs you now
+
+All commands: rt --help    Something wrong: rt doctor    Guide: the Guide page in rt ui
 """
+
+HELP_GROUPS = """commands by purpose:
+  start here        ui, init, status, doctor
+  models            seat (add, list, pause, resume, release, remove), launch, setup
+  plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
+  problems          alert, vote, freeze, unfreeze
+  follow along      log, usage, watch, export, compact, config
+  for apps          mcp, call
+"""
+
+
+def _next_step_text() -> str | None:
+    """Inside a project: one short status block and the next thing to do."""
+    from .context import open_ctx
+
+    try:
+        ctx = open_ctx(None)
+    except RTError:
+        return None
+    try:
+        from . import report
+
+        waiting = report.waiting_on_human(ctx)
+        seats = ctx.db.scalar("SELECT COUNT(*) FROM seats WHERE status != 'removed'", default=0)
+        plan = ctx.db.one("SELECT stage FROM plans WHERE stage NOT IN ('done','cancelled') ORDER BY id DESC LIMIT 1")
+        if not seats:
+            nxt = "add models: rt ui (Models page), or rt seat add <name> --model <id> --app <app>"
+        elif plan is None:
+            nxt = 'give them a goal: rt ui (Plan page), or rt goal "what to build"'
+        elif waiting:
+            nxt = waiting[0]
+        else:
+            nxt = "nothing waits on you; follow along with rt ui or rt status"
+        name = ctx.setting("project", "name") or ctx.root.name
+        return f"Roundtable {__version__} · project {name}\nnext: {nxt}\n\ndashboard: rt ui    everything: rt status    help: rt --help"
+    finally:
+        ctx.close()
+
 
 
 def _force_utf8() -> None:
@@ -62,7 +102,9 @@ def _csv(value: str | None) -> list[str] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="rt", description="Roundtable: AI models planning, building and reviewing one project together.")
+    p = argparse.ArgumentParser(prog="rt", description="Roundtable: AI models planning, building and reviewing one project together. "
+                                "Easiest: rt ui opens the dashboard, where every command below is a button.",
+                                epilog=HELP_GROUPS, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", action="version", version=f"roundtable {__version__}")
     p.add_argument("--home", help="project folder or its .roundtable folder (default: search upward from here)")
     p.add_argument("--seat", dest="as_seat", help="act as this seat (for apps without MCP)")
@@ -407,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         return pr_main(argv[1:])
     parser = build_parser()
     if not argv:
-        print(GETTING_STARTED.format(version=__version__))
+        print(_next_step_text() or GETTING_STARTED.format(version=__version__))
         return 0
     try:
         args = parser.parse_args(argv)

@@ -84,3 +84,47 @@ def db_path(home: Path) -> Path:
 
 def config_path(home: Path) -> Path:
     return home / CONFIG_NAME
+
+
+def user_config_dir() -> Path:
+    """Per-user settings folder (only the dashboard's list of recent projects lives here)."""
+    import sys
+
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "Roundtable"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Roundtable"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "roundtable"
+
+
+def recent_projects() -> list[dict]:
+    """Projects opened in the dashboard, newest first, that still exist."""
+    import json
+
+    path = user_config_dir() / "recent.json"
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for item in items if isinstance(items, list) else []:
+        root = Path(str(item.get("root", "")))
+        if (root / HOME_DIR / DB_NAME).exists():
+            out.append({"root": str(root), "name": item.get("name") or root.name})
+    return out[:12]
+
+
+def remember_project(root: Path, name: str) -> None:
+    import json
+
+    path = user_config_dir() / "recent.json"
+    items = [i for i in recent_projects() if i["root"] != str(root)]
+    items.insert(0, {"root": str(root), "name": name})
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(items[:12], indent=1), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass

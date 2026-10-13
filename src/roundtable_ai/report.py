@@ -47,7 +47,7 @@ def status_text(ctx) -> str:
     if plan:
         lines.append(f"plan P{plan['id']} [{plan['stage']}]: {util.one_line(plan['goal'], 70)}")
     else:
-        lines.append('no plan yet: rt goal "what you want built"')
+        lines.append('no plan yet: give a goal in rt ui (Plan page), or rt goal "what you want built"')
     seats = ctx.db.all("SELECT * FROM seats WHERE status != 'removed' ORDER BY created_at")
     if seats:
         lines.append("seats:")
@@ -56,7 +56,7 @@ def status_text(ctx) -> str:
             doing = f" · {s['now_doing']}" if s["now_doing"] else ""
             lines.append(f"  {s['handle']:<10} {s['model']} ({s['app']}) · {state}{doing}")
     else:
-        lines.append("no seats: rt seat add <name> --model <model id> --app claude-code|codex-cli|claude-app|codex-app")
+        lines.append("no models yet: add them in rt ui (Models page), or rt seat add <name> --model <model id> --app <app> (rt seat add --help lists apps)")
     by = {}
     for t in ctx.db.all("SELECT id, status FROM tasks ORDER BY seq, id"):
         by.setdefault(t["status"], []).append(t["id"])

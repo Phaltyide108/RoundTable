@@ -53,9 +53,13 @@ def make_repo(root: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
+def _clean_env(monkeypatch, tmp_path_factory):
     for var in ("RT_HOME", "RT_SEAT", "RT_SEAT_KEY"):
         monkeypatch.delenv(var, raising=False)
+    # never touch the real user's settings (recent projects, app configs)
+    cfg = tmp_path_factory.mktemp("userconfig")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg / "xdg"))
+    monkeypatch.setenv("APPDATA", str(cfg / "appdata"))
 
 
 @pytest.fixture

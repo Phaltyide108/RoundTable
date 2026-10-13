@@ -125,3 +125,43 @@ def has_terminal() -> bool:
 
 def has_vscode() -> bool:
     return vscode_command(".") is not None
+
+
+EDITORS = {"cursor": ("cursor", "/Applications/Cursor.app", "Cursor")}
+
+
+def open_editor(app: str, folder: str | Path) -> str:
+    """Open a folder in an editor app that has its own command (Cursor)."""
+    folder = str(folder)
+    cmd_name, mac_app, label = EDITORS.get(app, (app, "", app))
+    exe = shutil.which(cmd_name)
+    if exe:
+        cmd = [exe, folder]
+    elif sys.platform == "darwin" and mac_app and Path(mac_app).exists():
+        cmd = ["open", "-a", label, folder]
+    else:
+        raise RTError(NOT_FOUND, f"{label}'s `{cmd_name}` command was not found", f"open {label} and choose File > Open Folder: {folder}")
+    try:
+        _spawn(cmd, folder)
+    except OSError as exc:
+        raise RTError(NOT_FOUND, f"could not start {label} ({exc})", f"open {folder} in {label} yourself") from None
+    return f"opened {folder} in {label}"
+
+
+def open_folder(folder: str | Path) -> str:
+    """Show a folder in the file manager."""
+    folder = str(folder)
+    if os.name == "nt":
+        cmd = ["explorer", folder]
+    elif sys.platform == "darwin":
+        cmd = ["open", folder]
+    else:
+        exe = shutil.which("xdg-open")
+        if not exe:
+            raise RTError(NOT_FOUND, "no file manager command (xdg-open) found", f"open {folder} yourself")
+        cmd = [exe, folder]
+    try:
+        _spawn(cmd, folder)
+    except OSError as exc:
+        raise RTError(NOT_FOUND, f"could not open the folder ({exc})", f"open {folder} yourself") from None
+    return f"opened {folder}"

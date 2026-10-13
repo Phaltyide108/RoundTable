@@ -106,5 +106,5 @@ def init_project(root: str | Path, name: str | None = None) -> tuple[Path, list[
     report.insert(0, f"Roundtable project created: {home}")
     if main_branch:
         report.insert(1, f"finished work will be merged into branch: {main_branch}")
-    report.append("next: add seats, e.g.  rt seat add opus --model claude-opus-5-5 --app claude-code")
+    report.append("next: rt ui opens the dashboard to add models and start them (or: rt seat add opus --model claude-opus-5-5 --app claude-code)")
     return home, report

@@ -17,17 +17,21 @@ SYNC_HINTS = ("dropbox", "onedrive", "icloud", "mobile documents", "google drive
 class Report:
     def __init__(self) -> None:
         self.lines: list[str] = []
+        self.items: list[dict] = []  # the same checks as data, for the dashboard
         self.failed = False
 
     def ok(self, msg: str) -> None:
         self.lines.append(f"ok    {msg}")
+        self.items.append({"status": "ok", "message": msg, "fix": ""})
 
     def warn(self, msg: str, fix: str | None = None) -> None:
         self.lines.append(f"warn  {msg}" + (f"\n      fix: {fix}" if fix else ""))
+        self.items.append({"status": "warn", "message": msg, "fix": fix or ""})
 
     def fail(self, msg: str, fix: str | None = None) -> None:
         self.failed = True
         self.lines.append(f"FAIL  {msg}" + (f"\n      fix: {fix}" if fix else ""))
+        self.items.append({"status": "fail", "message": msg, "fix": fix or ""})
 
 
 def _check_entry(r: Report, label: str, entry: dict | None, home: Path) -> None:
@@ -46,6 +50,11 @@ def _check_entry(r: Report, label: str, entry: dict | None, home: Path) -> None:
 
 
 def run_doctor(home: str | None = None) -> tuple[str, bool]:
+    r = check(home)
+    return "\n".join(r.lines), not r.failed
+
+
+def check(home: str | None = None) -> Report:
     r = Report()
     v = sys.version_info
     (r.ok if v >= (3, 10) else r.fail)(f"Python {v.major}.{v.minor}.{v.micro} ({sys.executable})")
@@ -56,7 +65,7 @@ def run_doctor(home: str | None = None) -> tuple[str, bool]:
         ctx = open_ctx(home)
     except RTError as exc:
         r.fail(exc.message, exc.hint)
-        return "\n".join(r.lines), not r.failed
+        return r
     try:
         r.ok(f"project: {ctx.root} (database schema {ctx.db.meta_get('schema_version')})")
         low = str(ctx.root).lower()
@@ -160,4 +169,4 @@ def run_doctor(home: str | None = None) -> tuple[str, bool]:
     finally:
         ctx.close()
     r.lines.append("all checks passed" if not r.failed else "some checks failed: see the fixes above")
-    return "\n".join(r.lines), not r.failed
+    return r

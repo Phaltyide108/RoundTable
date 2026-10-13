@@ -210,7 +210,7 @@ def test_dashboard_security(rt):
     page = urllib.request.urlopen(base + "/").read().decode()
     assert token in page and "Roundtable" in page
     state = json.loads(urllib.request.urlopen(base + "/api/state").read())
-    assert state["review"] == "low"
+    assert state["project"]["review"] == "low"
 
     def post(body, headers=None):
         req = urllib.request.Request(base + "/api/action", data=json.dumps(body).encode(), method="POST",
@@ -223,9 +223,9 @@ def test_dashboard_security(rt):
     assert post({"op": "admin.freeze", "params": {}})["ok"] is False
     assert post({"token": token, "op": "seat.remove", "params": {"handle": "x"}})["ok"] is False
     assert post({"token": token, "op": "admin.freeze", "params": {}}, {"Origin": "http://evil.example"})["ok"] is False
-    assert post({"token": token, "op": "admin.config_set", "params": {"key": "proof.timeout_seconds", "value": "1"}})["ok"] is False
+    assert "not available" in post({"token": token, "op": "task.claim", "params": {"task": "T1"}})["message"]  # seat-only
     assert post({"token": token, "op": "admin.freeze", "params": {"reason": "test"}})["ok"] is True
-    assert json.loads(urllib.request.urlopen(base + "/api/state").read())["frozen"] is True
+    assert json.loads(urllib.request.urlopen(base + "/api/state").read())["project"]["frozen"] is True
     req = urllib.request.Request(base + "/api/state", headers={"Host": "evil.example"})
     with pytest.raises(urllib.error.HTTPError):
         urllib.request.urlopen(req)
