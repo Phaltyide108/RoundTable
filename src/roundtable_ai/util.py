@@ -189,7 +189,9 @@ def norm_path(root: Path | str, path: str) -> str:
     root_posix = str(Path(root).resolve()).replace("\\", "/").rstrip("/")
     if raw.startswith(root_posix + "/"):
         raw = raw[len(root_posix) + 1 :]
-    elif os.path.isabs(raw) or re.match(r"^[A-Za-z]:/", raw):
+    # Any rooted path is outside the project. Not os.path.isabs: since Python 3.13 it says
+    # False on Windows for "/etc/passwd" (rooted, but no drive letter).
+    elif raw.startswith("/") or re.match(r"^[A-Za-z]:/" if os.name != "nt" else r"^[A-Za-z]:", raw):
         raise RTError(INVALID, f"path {path!r} is outside the project", "use a path relative to the project folder, e.g. src/app.py")
     parts: list[str] = []
     for part in PurePosixPath(raw).parts:
