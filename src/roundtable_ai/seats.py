@@ -186,7 +186,7 @@ def _return_tasks(ctx, handle: str, why: str) -> list[str]:
     )
     if moved:
         events.emit(
-            ctx, "task.returned", f"{', '.join(moved)} returned to ready ({why}); unmerged work stays on branch rt/{handle}",
+            ctx, "task.returned", f"{', '.join(moved)} returned to ready ({why}); unmerged work stays on its rt/{handle}/... branches",
             ref=handle, data={"tasks": moved},
         )
     return moved
