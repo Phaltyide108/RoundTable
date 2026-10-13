@@ -45,7 +45,15 @@ def state(home) -> dict[str, Any]:
                  for v in ctx.db.all("SELECT * FROM votes WHERE status IN ('open','tied') ORDER BY id")]
         reqs = [{"id": q["id"], "task": q["task"], "level": q["level"], "seat": q["seat"], "reason": q["reason"]}
                 for q in ctx.db.all("SELECT * FROM level_requests WHERE status = 'pending'")]
+        from . import usage
+
+        use = []
+        for s_row in ctx.db.all("SELECT * FROM seats WHERE status != 'removed' ORDER BY created_at"):
+            ex = usage.exchange_totals(ctx, s_row["handle"])
+            use.append({"handle": s_row["handle"], "app": usage.describe(usage.seat_snapshot(ctx, s_row)),
+                        "exchange": f"{ex['calls']} calls · ~{ex['tokens']:,} tokens (today ~{ex['tokens_today']:,})"})
         return {
+            "usage": use,
             "project": ctx.setting("project", "name") or ctx.root.name,
             "review": ctx.setting("review", "level"),
             "frozen": ctx.db.meta_get("frozen") == "1",
@@ -84,6 +92,7 @@ button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button.d
 <section><h2>Seats</h2><div id="seats"></div></section>
 <section style="grid-column:1/-1"><h2>Tasks</h2><div class="cols" id="tasks"></div></section>
 <section><h2>Alerts</h2><div id="alerts"></div></section>
+<section><h2>Usage</h2><div id="usage"></div></section>
 <section><h2>Recent activity</h2><div id="events"></div></section>
 </main>
 <script>
@@ -116,6 +125,7 @@ async function load(){
   const al = $("alerts"); al.innerHTML = "";
   s.alerts.forEach(a => { const d=document.createElement("div"); d.className="row"; d.innerHTML=`<span class="pill l${a.level}">L${a.level}</span><span>${esc(a.id)} ${esc(a.title)} <span class="mute">by ${esc(a.by)}</span></span>`; d.append(button("Resolve","alert.resolve",{id:a.id,resolution:"resolved by the human from the dashboard"})); al.append(d); });
   if (!s.alerts.length) al.innerHTML = '<span class="mute">No open alerts.</span>';
+  $("usage").innerHTML = s.usage.map(u => `<div class="row"><b>${esc(u.handle)}</b><span>${esc(u.app)}</span><span class="mute">Roundtable: ${esc(u.exchange)}</span></div>`).join("") || '<span class="mute">No seats.</span>';
   $("events").innerHTML = s.events.map(e => `<div class="row"><span class="mute">${esc(e.at)}</span><b>${esc(e.actor)}</b><span>${esc(e.text)}</span></div>`).join("");
 }
 $("level").onchange = e => act("admin.config_set", {key:"review.level", value:e.target.value});

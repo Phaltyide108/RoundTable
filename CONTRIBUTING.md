@@ -5,7 +5,7 @@ Thanks for helping. Roundtable aims to be boring to install and impossible to mi
 ## Development setup
 
 ```bash
-git clone https://github.com/OWNER/roundtable
+git clone https://github.com/Phaltyide108/RoundTable
 cd roundtable
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate

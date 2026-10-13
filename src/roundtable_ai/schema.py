@@ -334,6 +334,18 @@ CREATE TABLE IF NOT EXISTS wakeups (
   at       TEXT NOT NULL
 );
 
+-- Every MCP call a seat makes: what talking to Roundtable costs (chars / 4 ~ tokens).
+CREATE TABLE IF NOT EXISTS exchange (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  at        TEXT NOT NULL,
+  seat      TEXT NOT NULL,
+  op        TEXT NOT NULL,
+  chars_in  INTEGER NOT NULL,
+  chars_out INTEGER NOT NULL,
+  ok        INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS exchange_seat ON exchange(seat, at);
+
 -- Notifications already sent to the human (so the watcher never repeats one).
 CREATE TABLE IF NOT EXISTS notices (
   key TEXT PRIMARY KEY,

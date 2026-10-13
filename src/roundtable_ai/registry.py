@@ -176,4 +176,5 @@ MODULES = (
     "alerts",
     "votes",
     "admin",
+    "usage",
 )

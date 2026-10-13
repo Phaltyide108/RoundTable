@@ -51,6 +51,20 @@ def collect(ctx) -> list[tuple[str, str, str]]:
         if last and (util.seconds_since(last["at"]) or 0) > stuck:
             items.append((f"stuck:{t['id']}:{last['id']}", f"Roundtable: {t['id']} looks stuck",
                           f"{t['owner']} has not updated it for {ctx.setting('watch', 'stuck_minutes')}+ min"))
+    from . import usage
+
+    warn = ctx.setting("usage", "warn_percent")
+    for r in ctx.db.all("SELECT * FROM seats WHERE status = 'active'"):
+        snap = usage.seat_snapshot(ctx, r)
+        for key, label in (("limit_5h", "5-hour"), ("limit_7d", "7-day")):
+            w = (snap or {}).get(key) or {}
+            try:
+                pct = float(w.get("pct"))
+            except (TypeError, ValueError):
+                continue
+            if pct >= warn:
+                items.append((f"limit:{r['handle']}:{key}:{w.get('resets_at')}", f"Roundtable: {r['handle']} near its {label} limit",
+                              f"{pct:.0f}% used ({usage._resets(w.get('resets_at'))}); seats on the same plan share it"))
     for a in ctx.db.all("SELECT * FROM assignments WHERE status = 'open' AND seat != 'human'"):
         if (util.seconds_since(a["created_at"]) or 0) > stuck:
             items.append((f"assign:{a['id']}", f"Roundtable: {a['kind']} waiting", f"{a['seat']} has not done its {a['kind']} of {a['target']}; open its app and say 'check Roundtable'"))

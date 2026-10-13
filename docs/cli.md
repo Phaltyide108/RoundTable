@@ -25,6 +25,8 @@ positional arguments:
     unfreeze      let seats work again
     config        settings
     export        write JSONL snapshots
+    usage         context, tokens and 5h/7d limits per seat, plus Roundtable's
+                  own token cost
     setup         connect an app to this project
     launch        start a seat's app
     doctor        check everything and suggest fixes
@@ -606,6 +608,15 @@ options:
   -h, --help  show this help message and exit
 ```
 
+## rt usage
+
+```text
+usage: rt usage [-h]
+
+options:
+  -h, --help  show this help message and exit
+```
+
 ## rt setup
 
 ```text
@@ -706,6 +717,7 @@ options:
 - `admin.log`: History of events
 - `admin.status`: Overview for the human
 - `admin.unfreeze`: Let seats work again
+- `admin.usage`: Context, tokens and plan limits per seat, plus Roundtable's own token cost
 - `alert.set_level`: Change an alert's level
 - `plan.amend_decide`: Approve (applies now) or reject an amendment
 - `plan.cancel`: Cancel the active plan (and its unfinished tasks)

@@ -34,15 +34,28 @@ No API keys: every model runs in the app you already use, on your normal plan. R
 
 ## Install
 
+The easiest way, on Linux or macOS (no sudo needed):
+
 ```bash
-pipx install git+https://github.com/OWNER/roundtable
-# or
-uv tool install git+https://github.com/OWNER/roundtable
+curl -fsSL https://raw.githubusercontent.com/Phaltyide108/RoundTable/main/scripts/install.sh | sh
 ```
 
-From a local copy of this repository: `pipx install .`
+It uses uv or pipx if you have one, and otherwise installs [uv](https://docs.astral.sh/uv/) for your user first. On Windows, run `scripts/install.ps1` in PowerShell.
 
-Check it: `rt --version`. Upgrade later with `pipx upgrade roundtable-ai`.
+Or install by hand:
+
+```bash
+# Ubuntu / Debian (pipx is not preinstalled):
+sudo apt install pipx && pipx ensurepath        # then open a new terminal
+pipx install git+https://github.com/Phaltyide108/RoundTable
+
+# or with uv:
+uv tool install git+https://github.com/Phaltyide108/RoundTable
+```
+
+From a downloaded copy of this repository: `sh scripts/install.sh` (or `pipx install .`).
+
+Check it: `rt --version`. If your system already has a different `rt` program, use `roundtable` instead: every command works with either name. Upgrade later with `pipx upgrade roundtable-ai` or `uv tool upgrade roundtable-ai`.
 
 ## Quickstart: Claude Code + Codex CLI
 
@@ -126,6 +139,23 @@ Any seat can raise an alert. Levels 4 and 5 need evidence (a file and line, or c
 | 4 blocking | stop touching these files | the files are held until affected seats acknowledge; you are notified |
 | 5 critical | stop everything | files frozen; every other seat must acknowledge before doing anything; you are notified; command-line seats are woken |
 
+## Usage, context and limits
+
+`rt usage` (and the Usage panel in `rt ui`) shows, for every seat:
+
+- **Context:** how full its context window is, and its size.
+- **Session tokens** used so far.
+- **Plan limits:** how much of the 5-hour and 7-day limits are used, and when they reset.
+- **Roundtable's own cost:** every call a seat makes is measured, so you see exactly what coordinating costs (about 4 characters per token), plus the one-time cost of the tool definitions.
+
+```text
+opus (claude-opus-5-5, claude-code)
+  context 8% of 200k · session 19,755 tokens · 5h 24% (resets in 59m) · 7d 41% (resets in 2d 23h)
+  Roundtable exchange: 42 calls, ~6,310 tokens (today 12 calls, ~1,840) + ~1,900 tokens of tool definitions per session
+```
+
+Where the numbers come from: Claude Code seats started with `rt launch` get a status line that shows their usage and inbox, and passes the numbers to Roundtable. Plan limits appear on Pro and Max plans. Codex seats are read from Codex's own session logs. The desktop chat apps don't share these numbers, so only Roundtable's cost is shown for them. `rt watch` notifies you when a seat passes 90% of a limit (`rt config set usage.warn_percent 80` to change it). Seats from the same company usually share one plan's limits.
+
 ## More than two models
 
 Any number of seats can join, from any companies, including two from the same company (for example Claude Opus and Claude Fable, or two GPT models). Each has its own chat, working copy and history. Costs stay flat as you add seats: there are at most 3 planners, at most 2 critiques per seat and 0–2 reviewers per task, so a fifth seat adds its own work, not more reading for everyone.
@@ -176,6 +206,7 @@ More in [docs/troubleshooting.md](docs/troubleshooting.md) and [docs/edge-cases.
 - [MCP tools reference](docs/mcp-tools.md), for writing prompts
 - [Edge cases](docs/edge-cases.md)
 - [Architecture](docs/architecture.md), for contributors
+- [Comparison with Beads, Gas Town and MCP Agent Mail](docs/comparison.md): what we lack, what we add
 
 ## Contributing
 

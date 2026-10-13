@@ -26,7 +26,7 @@ Getting started (in your project's main folder, a git repo with at least one com
   rt launch opus         (in one terminal)   rt launch sol   (in another)
   rt goal "what you want built"                             seats draft plans blind
   rt plan lock                                              after they agree; creates tasks
-  rt status · rt watch · rt ui                              follow along
+  rt status · rt usage · rt watch · rt ui                   follow along
 
 More: rt <command> --help, rt doctor if anything looks wrong.
 """
@@ -160,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("value")
 
     sub.add_parser("export", help="write JSONL snapshots")
+    sub.add_parser("usage", help="context, tokens and 5h/7d limits per seat, plus Roundtable's own token cost")
 
     s = sub.add_parser("setup", help="connect an app to this project")
     s.add_argument("app", choices=["claude-code", "claude-app", "codex"])
@@ -263,6 +264,8 @@ def _route(args) -> tuple[str, dict[str, Any]] | None:
             return "admin.config_set", {"key": args.key, "value": args.value}
     if c == "export":
         return "admin.export", {}
+    if c == "usage":
+        return "admin.usage", {}
     if c == "call":
         return args.op, _parse_kv(args.params)
     return None
@@ -308,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
         from .guard import main as guard_main
 
         return guard_main(argv[1:])
+    if argv[:1] == ["_statusline"]:
+        from .usage import statusline_main
+
+        return statusline_main(argv[1:])
     if argv[:1] == ["_proofrun"]:
         from .proofrun import main as pr_main
 

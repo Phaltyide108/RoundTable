@@ -72,6 +72,10 @@ SCHEMA: dict[str, dict[str, tuple[Any, Any, str]]] = {
         "wake_min_interval_minutes": (10, int, "At most one background run per seat in this window"),
         "stuck_minutes": (30, int, "Work waiting longer than this is flagged to you"),
     },
+    "usage": {
+        "statusline": (True, bool, "Seats started with rt launch in Claude Code show usage + inbox in their status line"),
+        "warn_percent": (90, int, "Notify you when a seat passes this share of its 5-hour or 7-day limit"),
+    },
     "dashboard": {
         "port": (8765, int, "Local dashboard port (127.0.0.1 only)"),
     },

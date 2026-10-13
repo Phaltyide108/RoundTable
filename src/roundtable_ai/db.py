@@ -117,11 +117,20 @@ class Store:
                         for stmt in _split_sql(script):
                             self.conn.execute(stmt)
                 self.conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
-        if _EXTRA_SCHEMA:
+        # Tables added within the current schema version (CREATE ... IF NOT EXISTS) are
+        # applied once per change, detected by a hash, so ordinary opens take no write lock.
+        import hashlib
+
+        digest = hashlib.sha256((SCHEMA_V1 + "".join(_EXTRA_SCHEMA)).encode()).hexdigest()[:16]
+        if self.meta_get("schema_hash") != digest:
             with self.tx():
+                for stmt in _split_sql(SCHEMA_V1):
+                    if stmt.lstrip().upper().startswith("CREATE"):
+                        self.conn.execute(stmt)
                 for extra in _EXTRA_SCHEMA:
                     for stmt in _split_sql(extra):
                         self.conn.execute(stmt)
+                self.meta_set("schema_hash", digest)
 
     def close(self) -> None:
         try:

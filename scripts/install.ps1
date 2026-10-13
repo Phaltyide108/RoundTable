@@ -1,7 +1,7 @@
 # Install Roundtable for the current user (Windows PowerShell). No admin rights needed.
 # Usage:  powershell -ExecutionPolicy Bypass -File install.ps1   (set $env:REPO_URL to use your fork)
 $ErrorActionPreference = "Stop"
-$RepoUrl = if ($env:REPO_URL) { $env:REPO_URL } else { "https://github.com/OWNER/roundtable" }
+$RepoUrl = if ($env:REPO_URL) { $env:REPO_URL } else { "https://github.com/Phaltyide108/RoundTable" }
 $Spec = "git+$RepoUrl"
 
 function Fail($msg) { Write-Host "roundtable install: $msg" -ForegroundColor Red; exit 1 }

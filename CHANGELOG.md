@@ -13,4 +13,6 @@ First release.
 - Suggestions that must be answered, alerts at severity 1-5 (holds, freezes, STOP), votes with reasons.
 - Per-seat digests built from an event log at zero model-token cost.
 - Dependency-free MCP server (stdio), tested with the official MCP client 1.30.0 and 2.x and with Claude Code 2.1.296.
+- `rt usage`: per-seat context size, session tokens, 5-hour and 7-day plan limits (from Claude Code's status line and Codex session logs), plus the token cost of the exchange between models. Claude Code seats launched with `rt launch` show it in their status line; `rt watch` warns near a limit.
+- Install script that needs no sudo (uses uv or pipx, installs uv if neither exists).
 - `rt` command line, `rt setup` for Claude Code / Claude app / Codex (merged with backups), `rt launch`, `rt doctor`, `rt watch` (notifications and wake-ups), `rt ui` local dashboard.

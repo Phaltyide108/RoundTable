@@ -61,6 +61,20 @@ def housekeeping(ctx: Ctx, handle: str | None) -> None:
             seats.touch(ctx, handle)
 
 
+def _meter(ctx: Ctx, handle: str, name: str, params: Any, text: str, ok: bool) -> None:
+    """Record what this call cost in characters (models pay ~1 token per 4)."""
+    if ctx.client != "mcp":
+        return
+    try:
+        import json
+
+        from .usage import record_exchange
+
+        record_exchange(ctx, handle, name, len(json.dumps(params or {}, ensure_ascii=False, default=str)), len(text or ""), ok)
+    except Exception:
+        pass
+
+
 def _log_internal(ctx: Ctx | None, name: str) -> str:
     tb = traceback.format_exc()
     if ctx is not None:
@@ -153,6 +167,7 @@ def call(
                 result.text = inbox.line(ctx, handle) + "\n" + result.text
             except Exception:  # never let the inbox line break a reply
                 pass
+            _meter(ctx, handle, name, params, result.text, True)
         return result
     except RTError as exc:
         if handle:
@@ -160,6 +175,7 @@ def call(
                 exc.inbox = inbox.line(ctx, handle)  # type: ignore[attr-defined]
             except Exception:
                 pass
+            _meter(ctx, handle, name, params, exc.render(), False)
         raise
     except Exception as exc:  # a bug: log it, explain it, keep the session alive
         where = _log_internal(ctx, name)

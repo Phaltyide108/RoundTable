@@ -1,34 +1,65 @@
 #!/bin/sh
-# Install Roundtable for the current user (macOS / Linux). No sudo needed.
-# Usage: sh install.sh            or   REPO_URL=https://github.com/you/roundtable sh install.sh
+# Install Roundtable for the current user (Linux / macOS). No sudo needed.
+#
+#   sh scripts/install.sh                 from a downloaded copy: installs that copy
+#   curl -fsSL <raw url of this file> | sh   installs from GitHub (set REPO_URL for a fork)
+#
+# Uses uv or pipx if you have one; otherwise installs uv (a single program, into
+# ~/.local/bin) and uses it. Never uses sudo and never touches system Python.
 set -eu
-REPO_URL="${REPO_URL:-https://github.com/OWNER/roundtable}"
-SPEC="git+${REPO_URL}"
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'roundtable install: %s\n' "$*" >&2; exit 1; }
 
-PY=""
-for c in python3 python; do
-  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
-done
-[ -n "$PY" ] || fail "Python 3.10+ is required. Install it from https://www.python.org/downloads/ and run this again."
-"$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || fail "Python 3.10+ is required (found $("$PY" --version 2>&1))."
-command -v git >/dev/null 2>&1 || fail "git is required. Install it from https://git-scm.com/downloads and run this again."
+HERE=""
+case "$0" in
+  */install.sh) HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd || true) ;;
+esac
+if [ -z "${REPO_URL:-}" ] && [ -n "$HERE" ] && [ -f "$HERE/pyproject.toml" ] && grep -q 'name = "roundtable-ai"' "$HERE/pyproject.toml"; then
+  SPEC="$HERE"
+  say "installing Roundtable from this folder: $SPEC"
+else
+  SPEC="git+${REPO_URL:-https://github.com/Phaltyide108/RoundTable}"
+  say "installing Roundtable from $SPEC"
+fi
+
+command -v git >/dev/null 2>&1 || fail "git is required. Ubuntu/Debian: sudo apt install git   macOS: xcode-select --install"
 
 if command -v uv >/dev/null 2>&1; then
-  say "installing with uv: $SPEC"
-  uv tool install --force "$SPEC"
+  UV=uv
+elif [ -x "$HOME/.local/bin/uv" ]; then
+  UV="$HOME/.local/bin/uv"
+else
+  UV=""
+fi
+
+if [ -n "$UV" ]; then
+  "$UV" tool install --force --python ">=3.10" "$SPEC"
 elif command -v pipx >/dev/null 2>&1; then
-  say "installing with pipx: $SPEC"
   pipx install --force "$SPEC"
 else
-  say "neither uv nor pipx found; installing pipx for your user first"
-  "$PY" -m pip install --user pipx || fail "could not install pipx. Install uv (https://docs.astral.sh/uv/) or pipx, then run this again."
-  "$PY" -m pipx ensurepath || true
-  "$PY" -m pipx install --force "$SPEC"
+  say "neither uv nor pipx found: installing uv for your user (https://docs.astral.sh/uv/)"
+  if command -v curl >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://astral.sh/uv/install.sh | sh
+  else
+    fail "need curl or wget to install uv. Ubuntu/Debian: sudo apt install curl  (or: sudo apt install pipx)"
+  fi
+  UV="$HOME/.local/bin/uv"
+  [ -x "$UV" ] || UV="$HOME/.cargo/bin/uv"
+  [ -x "$UV" ] || fail "uv was installed but not found; open a new terminal and run this script again"
+  # uv downloads a suitable Python by itself if yours is older than 3.10
+  "$UV" tool install --force --python ">=3.10" "$SPEC"
 fi
 
 say ""
-say "Roundtable installed. If 'rt' is not found, open a new terminal (your PATH was updated)."
-say "Next, in your project folder:  rt init   then   rt seat add <name> --model <model> --app claude-code|codex-cli|claude-app|codex-app"
+if command -v rt >/dev/null 2>&1 && rt --version 2>/dev/null | grep -q roundtable; then
+  say "Roundtable is installed: $(rt --version)"
+else
+  # make sure ~/.local/bin is on PATH in new terminals (Ubuntu only adds it at login)
+  if [ -n "$UV" ]; then "$UV" tool update-shell >/dev/null 2>&1 || true; else pipx ensurepath >/dev/null 2>&1 || true; fi
+  say "Roundtable is installed. Open a NEW terminal so 'rt' is found (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")."
+  say "If 'rt' is another program on your system, use the same commands with 'roundtable' instead."
+fi
+say "Next: cd into your project (a git repository with at least one commit) and run:  rt init"

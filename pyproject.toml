@@ -37,8 +37,8 @@ rt = "roundtable_ai.cli:main"
 roundtable = "roundtable_ai.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/roundtable"
-Issues = "https://github.com/OWNER/roundtable/issues"
+Homepage = "https://github.com/Phaltyide108/RoundTable"
+Issues = "https://github.com/Phaltyide108/RoundTable/issues"
 
 [tool.hatch.version]
 path = "src/roundtable_ai/__init__.py"
