@@ -41,66 +41,42 @@ git config --global user.name >/dev/null || git config --global user.name "Phalt
 git config --global user.email >/dev/null || git config --global user.email "104723892+Phaltyide108@users.noreply.github.com"
 ```
 
-## 3. Set up the table
+## 3. Set up the table (dashboard)
 
 ```bash
 cd ~/Desktop/RoundTable
-rt init
-rt seat add opus --model claude-opus-5-5 --app claude-code
-rt seat add sol --model gpt-6.1-sol --app codex-cli
-rt doctor
+rt ui
 ```
 
-If `/model` showed a different GPT model, use that name in the `rt seat add sol` line instead.
+Your browser opens the dashboard.
+
+1. Click **Set up Roundtable in this folder**.
+2. **Models → Add a model**: name `opus`, where it runs **Claude Code in a terminal**, model `claude-opus-5-5`. **Add model**.
+3. **Add a model** again: name `sol`, **Codex in a terminal**, model `gpt-6.1-sol` (or the name `/model` showed). **Add model**.
+4. Click **Start in a terminal** on each. A terminal window opens per model, already in its own folder and joined. Allow the roundtable tools when the app asks.
+
+Terminal alternative: `rt init`, `rt seat add opus --model claude-opus-5-5 --app claude-code`, `rt seat add sol --model gpt-6.1-sol --app codex-cli`, then `rt launch opus` and `rt launch sol` in two terminals.
 
 ## 4. Give them the goal
 
-```bash
-rt goal --review mid "Close two gaps from docs/comparison.md, each with tests and following AGENTS.md. (1) Text search in the event log: rt log --grep TEXT, case-insensitive, combinable with --since and --task. (2) Database backups: rt backup copies the project's Roundtable database with the sqlite3 backup API into .roundtable/backups/ with a timestamped name and keeps the newest 10; rt doctor reports the age of the newest backup. Use this proof command for every task: uv run --no-project --python 3.12 --with pytest -- python -m pytest -q. docs/cli.md is generated: only the last task regenerates it with python scripts/gen_docs.py."
+**Plan → Start a plan.** Paste this as the goal, choose **Mid** review depth, click **Start planning**:
+
+```text
+Close two gaps from docs/comparison.md, each with tests and following AGENTS.md. (1) Text search in the event log: rt log --grep TEXT, case-insensitive, combinable with --since and --task. (2) Database backups: rt backup copies the project's Roundtable database with the sqlite3 backup API into .roundtable/backups/ with a timestamped name and keeps the newest 10; rt doctor reports the age of the newest backup. Use this proof command for every task: uv run --no-project --python 3.12 --with pytest -- python -m pytest -q. docs/cli.md is generated: only the last task regenerates it with python scripts/gen_docs.py.
 ```
 
-`--review mid` means each finished task is reviewed by the other company's model from a map of the changed code. Use `--review high` for full line-by-line reviews (costs more tokens), `low` for none.
+Terminal alternative: `rt goal "<the text above>" --review mid`.
 
-## 5. Start both models (one terminal each)
+## 5. Watch and decide
 
-Terminal 2, Claude:
+- **Overview** shows what needs you, and the table: who is writing, critiquing, working or reviewing.
+- When the plan is ready, **Overview** says so. Open **Plan**, read the tasks and the test commands, tick the box, **Lock the plan** (terminal: `rt plan view`, `rt plan lock`).
+- Then each model claims a task, works in its own folder, and closes it. Roundtable runs the tests; the other model reviews; the task merges into `main`.
+- If a model files a bug it found, it appears in **Tasks → Backlog**: accept it or cancel it.
 
-```bash
-cd ~/Desktop/RoundTable && rt launch opus
-```
+## 6. Keep them moving
 
-Terminal 3, GPT:
-
-```bash
-cd ~/Desktop/RoundTable && rt launch sol
-```
-
-Each one starts in its own working folder and is told to call `rt_sync`. When the app asks whether it may use the `roundtable` tools, allow them for the session.
-
-Terminal 1, you:
-
-```bash
-cd ~/Desktop/RoundTable && rt ui
-```
-
-This opens the dashboard in your browser: plan, tasks, reviews, alerts and the Usage panel.
-
-## 6. What happens, and what you do
-
-1. **Blind drafts.** Each model writes its own plan without seeing the other's.
-2. **Critique.** Each critiques the other's draft, shown as "Draft A/B" without the author.
-3. **Merge and approve.** The chair merges, the other approves or objects (one revision round).
-4. **You lock it.** You get "plan ready". Read it, then lock it:
-
-   ```bash
-   rt plan view
-   rt plan lock
-   ```
-
-5. **Build.** Each model claims a task, works in its own folder, commits and closes it. Roundtable runs the proof command itself; a failing test sends the task back.
-6. **Review and merge.** The other model reviews; then the task branch is merged into `main` in `~/Desktop/RoundTable`. `git log --oneline` shows each model as the author of its commits.
-
-**Important:** the models do not listen in the background. When a chat goes quiet, type `check roundtable` in it. `rt status` tells you who is waiting on what. `rt watch` in a fourth terminal sends desktop notifications when something needs you.
+The models do not listen in the background. When a terminal goes quiet, type `check roundtable` in it. The dashboard and `rt watch` tell you when something needs you.
 
 ## 7. Watch the cost
 
@@ -108,7 +84,7 @@ This opens the dashboard in your browser: plan, tasks, reviews, alerts and the U
 rt usage
 ```
 
-This shows, per model: context used, session tokens, the 5-hour and 7-day plan limits, and what the exchange through Roundtable itself cost. Claude Code also shows a one-line version at the bottom of its window. For Codex, the numbers come from its session logs and appear after its first reply.
+(or the **Usage** page). This shows, per model: context used, session tokens, the 5-hour and 7-day plan limits, and what the exchange through Roundtable itself cost. Claude Code also shows a one-line version at the bottom of its window. For Codex, the numbers come from its session logs and appear after its first reply.
 
 ## 8. If something goes wrong
 

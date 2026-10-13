@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 (2026-10-13)
+
+- **Dashboard first.** `rt ui` now covers every human action: set up a folder, add and start models (opens a terminal window, VS Code or Cursor), connect apps, start and lock plans after reading the test commands, file and accept tasks, review with diffs, alerts and votes, usage, memory, history search, settings with setup checks, and a built-in guide. Works outside a project, remembers recent projects, light and dark, phones.
+- **Tracking like Beads:** task kinds, priorities P0-P4 and labels; epics; waits_for / related / discovered_from / parent links; models file discovered work into a backlog you accept; project memory shown to every model when it joins; `rt compact`.
+- **More apps:** Claude Code and Codex in VS Code, Gemini CLI, Qwen Code, opencode, GitHub Copilot CLI (`rt setup copilot`) and Cursor. Per-seat settings files bind each app to its model and stay out of git.
+- `commit=true` on checkpoint/close lets Roundtable commit for apps whose sandbox keeps `.git` read-only (Codex).
+- Plain `rt` tells you the next step; `rt --help` groups commands by purpose. New docs/guide.md.
+- Database schema 2, migrated automatically with a backup.
+- Fixes found by CI: lost output of hung test runs, slow dashboard start on some Macs, rooted paths on Windows with Python 3.13.
+
+
 ## 0.1.0 (2026-10-13)
 
 First release.

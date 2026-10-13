@@ -29,7 +29,7 @@ No API keys: every model runs in the app you already use, on your normal plan. R
 
 - Python 3.10 or newer
 - git (2.31+ recommended), and a repository with at least one commit
-- At least one of: [Claude Code](https://docs.claude.com/claude-code), the Claude desktop app, [Codex CLI](https://github.com/openai/codex) (or its VS Code extension), the ChatGPT desktop app (Codex mode)
+- At least two AI apps from the table below, signed in with your own plans (no API keys)
 - Linux, macOS or Windows
 
 ## Install
@@ -57,51 +57,58 @@ From a downloaded copy of this repository: `sh scripts/install.sh` (or `pipx ins
 
 Check it: `rt --version`. If your system already has a different `rt` program, use `roundtable` instead: every command works with either name. Upgrade later with `pipx upgrade roundtable-ai` or `uv tool upgrade roundtable-ai`.
 
-## Quickstart: Claude Code + Codex CLI
+## Quickstart: the dashboard
 
-Run these in your project's main folder (a git repository with at least one commit).
+In your project's main folder (a git repository with at least one commit):
+
+```bash
+rt ui
+```
+
+Your browser opens the dashboard. Everything is a button from there:
+
+1. **Set up Roundtable in this folder** (it only adds a hidden `.roundtable` folder).
+2. **Models → Add a model**, two or more, ideally from different companies. Pick where each runs: Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps.
+3. **Start** each one. Terminal apps open in a new terminal window in the model's own working copy, already joined. Editors open the right folder, and the page shows the one message to send.
+4. **Plan → Start a plan**: write the goal and choose the review depth.
+5. When the models agree, **Overview** shows "The plan is ready for you". Read the tasks and the test commands they will run, tick the box, **Lock the plan**.
+6. Watch work move on the Overview: who is doing what at the table, what needs you, tests, reviews and merges. The **Guide** page explains every word and lists the terminal command for every button.
+
+## Quickstart: the terminal
+
+The same, without the browser:
 
 ```bash
 rt init
 rt seat add opus --model claude-opus-5-5 --app claude-code
-rt seat add sol  --model gpt-5.6-sol     --app codex-cli
-rt watch                    # in its own terminal: notifies you when you're needed
+rt seat add sol  --model gpt-6.1-sol     --app codex-cli
+rt launch opus              # in one terminal
+rt launch sol               # in another
+rt goal "Add a REST endpoint for user profiles, with tests" --review mid
+rt status                   # what needs you
+rt plan view && rt plan lock
 ```
 
-Each coding seat gets its own working copy next to your project (for example `../myproject.opus`) so the models never edit the same folder. Start each seat in its own terminal:
+Plain `rt` tells you the next step; `rt --help` groups the commands by purpose.
 
-```bash
-rt launch opus
-rt launch sol
-```
+## Apps that can sit at the table
 
-Give them a goal, and lock the plan when they agree:
+| App | `--app` | How it starts | Knows which model it is |
+| --- | --- | --- | --- |
+| Claude Code in a terminal | `claude-code` | Start / `rt launch` | yes, with a usage status line |
+| Codex CLI | `codex-cli` | Start / `rt launch` | yes |
+| Claude Code in VS Code | `claude-vscode` | Start opens the folder in VS Code | yes (per-seat `.mcp.json`) |
+| Codex in VS Code | `codex-vscode` | Start opens VS Code; `rt setup codex` once | send "join Roundtable as sol" |
+| Gemini CLI | `gemini-cli` | Start / `rt launch` | yes (per-seat `.gemini/settings.json`) |
+| Qwen Code | `qwen-code` | Start / `rt launch` | yes (per-seat `.qwen/settings.json`) |
+| opencode | `opencode` | Start / `rt launch` | yes (per-seat `opencode.json`) |
+| GitHub Copilot CLI | `copilot-cli` | Start / `rt launch`; `rt setup copilot` once | send "join Roundtable as …" |
+| Cursor | `cursor` | Start opens the folder in Cursor | yes (per-seat `.cursor/mcp.json`) |
+| Claude desktop app | `claude-app` | `rt setup claude-app` once, new chat | send "join Roundtable as …"; plans and reviews only |
+| ChatGPT desktop app, Codex mode | `codex-app` | `rt setup codex` once, open the folder | send "join Roundtable as …" |
+| Anything else with MCP | `other` | add the server by hand (the Models page shows what to enter) | send "join Roundtable as …" |
 
-```bash
-rt goal "Add a REST endpoint for user profiles, with tests"
-rt status                   # see where things are
-rt plan view                # read the proposal
-rt plan lock                # approve it; shows every test command it will run
-```
-
-From there the seats claim tasks, commit in their working copies, close tasks (Roundtable runs the tests), review each other, and finished work is merged into your main branch. Follow along with `rt status`, `rt log` or the dashboard: `rt ui`.
-
-## Quickstart: Claude app + ChatGPT desktop app
-
-```bash
-rt init
-rt seat add fable --model claude-fable-5 --app claude-app
-rt seat add sol56 --model gpt-5.6-sol    --app codex-app
-rt setup claude-app         # adds Roundtable to the Claude app's settings (merged, with a backup)
-rt setup codex              # adds it to ~/.codex/config.toml (used by Codex CLI, the VS Code extension and ChatGPT's Codex mode)
-```
-
-Restart both apps. Then:
-
-- In the Claude app, start a chat and say: **join Roundtable as fable**. The Claude app can't edit project files itself, so this seat plans and reviews.
-- In the ChatGPT app, switch to Codex mode, open the folder `rt seat list` shows for `sol56` (its working copy), and say: **join Roundtable as sol56**.
-
-Then `rt goal "..."` as above. Chat apps can't be woken up by another program, so when a seat has something to do, `rt watch` notifies you and you say "check Roundtable" in that chat.
+Per-seat settings files are written into that model's working copy and hidden from git (`.git/info/exclude`), so they never show up as changes. Claude Code and Codex are verified end to end; the other apps' settings formats follow their current documentation.
 
 ## How a project flows
 
@@ -138,6 +145,16 @@ Any seat can raise an alert. Levels 4 and 5 need evidence (a file and line, or c
 | 3 problem | must be read | affected seats must acknowledge before claiming new work |
 | 4 blocking | stop touching these files | the files are held until affected seats acknowledge; you are notified |
 | 5 critical | stop everything | files frozen; every other seat must acknowledge before doing anything; you are notified; command-line seats are woken |
+
+## Tracking work (what Beads does, and more)
+
+- **Kinds, priorities, labels.** Tasks are `task`, `feature`, `bug`, `chore`, `docs`, `test` or `epic`, with priority P0 (urgent) to P4 (someday) and labels. Ready work is handed out most urgent first.
+- **Epics.** Group tasks under an epic; it finishes when its tasks do.
+- **Links.** `waits_for` (a real dependency), `related`, `discovered_from`, and `parent`.
+- **Discovered work.** A model that finds a bug outside its task files it (`rt_task file`) instead of fixing it on the side or forgetting it. It lands in your backlog; you accept it with its files and test command in one click (`rt task accept T9`).
+- **Project memory.** `rt memory add "tests need DATABASE_URL"`, or a model's `rt_memory add`. Every model sees the pinned notes and the newest others when it joins, so a fresh chat starts with what earlier chats learned. Notes from models are shown to other models as data, not instructions.
+- **Compaction.** `rt compact` keeps each finished task's outcome and drops the step-by-step detail of work finished more than 30 days ago.
+- **Search and filters.** `rt task list --status backlog --kind bug --label auth --priority 1`, and full-text search of the history on the Activity page.
 
 ## Usage, context and limits
 
@@ -176,7 +193,8 @@ Any number of seats can join, from any companies, including two from the same co
 
 ## Honest limits
 
-- Desktop chat apps (the Claude app, ChatGPT's Codex mode, VS Code chat panels) can't be woken up by another program. `rt watch` notifies you instead.
+- Models don't listen in the background. Command-line models can be woken for critical alerts; chat panels and desktop apps can't, so `rt watch` notifies you and you say "check roundtable" in that chat.
+- One computer: all models must run on the machine that holds the project (no sync across computers yet).
 - Seats on the same subscription share its usage limit.
 - ChatGPT's plain Chat mode isn't supported: it reaches custom MCP servers only through Developer Mode and a public tunnel.
 - Roundtable is built for a few models working closely (2–6 seats), not dozens in parallel.
@@ -194,12 +212,34 @@ Any number of seats can join, from any companies, including two from the same co
 
 More in [docs/troubleshooting.md](docs/troubleshooting.md) and [docs/edge-cases.md](docs/edge-cases.md).
 
-## Compared with Beads and Gas Town
+## Light and fast
 
-[Beads](https://github.com/gastownhall/beads) is a mature, dependency-aware task tracker for coding agents, and Gas Town builds on it to run 20–30 agents in parallel. Both are further along than Roundtable in scale, storage and sync, workflow templates and real-world use. Roundtable focuses on something narrower: a few models from different companies planning blind, cross-checking each other at a depth you control, with proof-to-close and severity alerts. They can complement each other.
+Measured on Linux with Python 3.13 (October 2026):
+
+| | |
+| --- | --- |
+| Package | 188 KB wheel, no third-party dependencies (only `tomli` on Python 3.10) |
+| MCP server start | about 80 ms |
+| A typical model call (`rt_sync`) | about 3 ms median, 4 ms at p95 |
+| Memory per connected model | about 22 MB |
+| Tool definitions | about 2,900 tokens, once per chat session |
+| Catching up | a digest of only what changed for that model, built by plain code (0 model tokens) |
+
+One SQLite file holds everything; no server or daemon has to run. A Go binary such as Beads starts faster per command than Python does, so `rt` commands from the terminal take about 0.1 s.
+
+## Compared with Beads, Gas Town and MCP Agent Mail
+
+Roundtable now covers Beads' tracking basics (priorities, kinds, labels, epics, links, discovered work, memory, compaction) and adds what none of them have: models from different companies planning blind and critiquing each other anonymously, tests run by Roundtable itself before anything closes, enforced file barriers with per-model working copies, review depth you choose, severity 1–5 alerts that can stop work, desktop chat apps as members, a usage view per model, and a full dashboard. Still missing: syncing one table across several computers (Beads uses Dolt for that), workflow templates, pull-request based merging, and the scale of Gas Town (20–50 agents). The full list is in [docs/comparison.md](docs/comparison.md).
+
+## Credits and inspiration
+
+- Planning together follows [Andrej Karpathy's LLM Council](https://github.com/karpathy/llm-council): models answer independently, review each other's answers anonymously, and a chairman merges the result. Roundtable applies that to plans and code, with you as the final vote.
+- Tracking ideas come from Steve Yegge's [Beads](https://github.com/steveyegge/beads) and Gas Town; messaging ideas from [MCP Agent Mail](https://github.com/Dicklesworthstone/mcp_agent_mail).
+- The dashboard follows the design rules of [Impeccable](https://impeccable.style/).
 
 ## Documentation
 
+- [Guide](docs/guide.md): every dashboard page and its terminal command, in plain words
 - [Concepts](docs/concepts.md): seats, plans, tasks, leases, proofs, reviews, alerts, votes
 - [Setting up apps](docs/setup-apps.md)
 - [Command reference](docs/cli.md)

@@ -12,17 +12,20 @@ Legend: **Gap** = they have it, we don't. **Partial** = we have a smaller versio
 
 | Feature | Beads | Roundtable |
 |---|---|---|
-| Sync across machines | Version-controlled database (Dolt) with push/pull and federation | **Gap.** One SQLite file on one computer. All seats must run on the same machine. |
+| Sync across machines | Version-controlled database (Dolt) with push/pull and federation | **Gap.** One SQLite file on one computer. All models must run on the same machine. |
 | Collision-free IDs across branches/machines | Hash IDs | **Gap** (only matters once multi-machine exists). Sequential `T1`, `T2`. |
-| Dependency kinds | blocks, parent-child, discovered-from, related | **Partial.** Only "blocked by". No epics or sub-tasks, no "found while doing X" links. |
-| Labels, issue types, priorities | Yes | **Partial.** Tasks have risk and review level, no labels/types/priority ordering. |
-| Compaction ("memory decay") of old closed work | Summarises old issues to save context | **Gap.** Digests only show what is new since you last looked; old history is never summarised. |
-| Long-term agent memory (`bd remember` / `bd prime`) | Yes | **Gap.** No saved notes injected at the start of a session. |
+| Dependency kinds | blocks, parent-child, related, duplicates, supersedes, discovered-from | **Yes** (0.2): waits_for, related, discovered_from, parent (epics). No duplicates/supersedes yet. |
+| Types, priorities, labels | Yes | **Yes** (0.2): task, feature, bug, chore, docs, test, epic; P0-P4; labels; ready work ordered by priority. |
+| Agents file work they discover | Yes | **Yes** (0.2): `rt_task file` puts it in a backlog; the human accepts it with files and a test command. Duplicates are detected. |
+| Long-term memory (`bd remember` / `bd prime`) | Yes | **Yes** (0.2): `rt memory` / `rt_memory`; pinned and recent notes are given to every model when it joins, marked as data when a model wrote them. |
+| Compaction of old work | Semantic summaries of closed issues | **Partial** (0.2): `rt compact` drops step-by-step detail of old finished work and keeps outcomes. No model-written summaries. |
 | Reusable workflow templates (formulas, molecules) | Yes | **Gap.** Every plan is written fresh. |
-| Gates (timer, GitHub CI, human) | Yes | **Partial.** Human plan lock and proof-to-close exist; no timer or GitHub CI gates. |
-| State travels with the repo | Yes (or stealth mode) | Different by design: state lives in `.roundtable/` and is never committed. |
-| Ready-made setup for many agent apps | Claude Code, Codex, Cursor, Aider, Amp, Gemini CLI and more | **Partial.** `rt setup` knows Claude Code, Claude desktop app and Codex. Any other MCP client works with a manual config entry. |
-| Maturity | Large user base, many releases | **Gap.** Version 0.1.0, not yet used in the wild. |
+| Gates (timer, GitHub CI, human) | Yes | **Partial.** Human plan lock and proof-to-close; no timer or CI gates. |
+| Setup for many agents | Claude Code, Codex, Cursor, Factory, mux and more | **Yes** (0.2): Claude Code (terminal and VS Code), Codex (terminal, VS Code, ChatGPT app), Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, Claude desktop app, any MCP app. |
+| JSON output | `--json` | **Yes**: `--json` on every command. |
+| HTTP server for remote use | Experimental | **Gap** (stdio only, by design for now). |
+| Web UI | Community tools | **Yes**: `rt ui` covers every human action. |
+| Maturity | Large user base, many releases | **Gap.** Version 0.2.0. |
 
 ## Compared with Gas Town
 
@@ -37,7 +40,7 @@ Legend: **Gap** = they have it, we don't. **Partial** = we have a smaller versio
 | Find past sessions (Seance) | Yes | **Gap.** |
 | Federation between teams, reputation | Yes | **Gap.** |
 | Live activity feed in the terminal | TUI | **Partial.** `rt log` and `STATUS.md`; the live view is the `rt ui` web page. |
-| Web dashboard with actions | htmx dashboard, command palette | **Partial.** `rt ui` shows everything and has buttons to lock plans, decide votes, resolve alerts, freeze, merge and change review depth; no command palette. |
+| Web dashboard with actions | htmx dashboard, command palette | **Yes** (0.2): every human action, set-up screen, start models from it, guide built in. No command palette. |
 | Telemetry, plugins, Docker image, shell completions, sandboxing | Yes | **Gap.** |
 
 ## Compared with MCP Agent Mail
@@ -46,10 +49,10 @@ Legend: **Gap** = they have it, we don't. **Partial** = we have a smaller versio
 |---|---|---|
 | Free-form messages with threads, To/Cc/Bcc, importance | Yes | **Partial.** Directed suggestions that must be answered, alerts with levels 1-5, and votes. No general chat threads or Cc. |
 | Attachments and images in messages | Yes | **Gap.** Text only. |
-| Full-text search of past messages | SQLite FTS5 | **Gap.** `rt log` filters by time and task, no text search. |
+| Full-text search of past messages | SQLite FTS5 | **Partial** (0.2): text search of the history on the dashboard's Activity page; `rt log` filters by time and task. |
 | Shared vs exclusive file reservations | Both | **Partial.** Leases are exclusive; reading is always allowed, so "shared" is implied. |
 | Contact policies (who may message whom) | Yes | Not needed: one project, every seat is a teammate. |
-| Human can write to agents from the web UI | Overseer compose screen | **Partial.** The human acts from the CLI (`rt alert raise`, `rt freeze`, plan/vote decisions); the web page has buttons for decisions but no compose box. |
+| Human can write to agents from the web UI | Overseer compose screen | **Partial** (0.2): raise alerts, file tasks, add memory and decide everything from the dashboard; no free-form message box. |
 | Several projects linked together | Yes | **Gap.** One project per Roundtable. |
 | Signed/encrypted static export, secret scrubbing | Yes | **Partial.** `rt export` writes a readable bundle; no signing, encryption or scrubbing. |
 | Backups and repair | Doctor with repair, archives | **Partial.** `rt doctor` finds and explains problems; config writes are backed up; no database backup/restore command. |
@@ -69,9 +72,8 @@ Legend: **Gap** = they have it, we don't. **Partial** = we have a smaller versio
 
 ## Most valuable gaps to close next
 
-1. Multi-machine sync (so two people's computers can share one table).
+1. Multi-machine sync, with hash IDs (so two computers can share one table).
 2. Pull-request flow: open a PR per proven task instead of merging locally.
-3. Long-term memory and compaction, so long projects stay cheap to resume.
-4. Automatic restart / nudge of stalled command-line seats.
-5. Text search over the log, suggestions and alerts.
-6. `rt setup` presets for Gemini CLI, Cursor and other MCP apps.
+3. Automatic restart and nudging of stalled command-line models.
+4. Plan templates (reusable workflows) and CI gates.
+5. Duplicates/supersedes links and model-written summaries for compaction.

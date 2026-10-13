@@ -124,7 +124,7 @@ def test_start_opens_a_terminal_or_says_what_to_run(rt, fake_home, monkeypatch, 
             import time
             time.sleep(0.1)
         args = record.read_text().splitlines()
-        assert args[0] == "--title=Roundtable opus" and "--" in args
+        assert args[0].startswith("--working-directory=") and "--" in args
         assert "roundtable_ai" in args[-1] and "launch opus" in args[-1]
         monkeypatch.setenv("PATH", str(tmp_path / "empty"))
         desktop.terminal_command  # noqa: B018
@@ -137,7 +137,7 @@ def test_start_opens_a_terminal_or_says_what_to_run(rt, fake_home, monkeypatch, 
 def test_terminal_and_editor_commands_per_platform(tmp_path):
     which = {"gnome-terminal": "/usr/bin/gnome-terminal", "konsole": "/usr/bin/konsole", "bash": "/bin/bash"}.get
     cmd = desktop.terminal_command(["rt", "launch", "opus"], "/p q", "Roundtable opus", platform="linux", which=which)
-    assert cmd[:3] == ["/usr/bin/gnome-terminal", "--title=Roundtable opus", "--working-directory=/p q"]
+    assert cmd[:3] == ["/usr/bin/gnome-terminal", "--working-directory=/p q", "--"]
     assert "cd '/p q' && rt launch opus" in cmd[-1]
     mac = desktop.terminal_command(["rt", "launch", "opus"], "/p", "t", platform="darwin", which=which)
     assert mac[0] == "osascript" and any("do script" in x for x in mac)
@@ -161,3 +161,21 @@ def test_switching_projects_and_refusing_bad_folders(rt, fake_home, tmp_path):
         assert c.post("/api/do", {"kind": "folder", "path": "/etc"})["ok"] is False
     finally:
         c.close()
+
+
+def test_a_terminal_that_fails_is_reported(tmp_path, monkeypatch):
+    if os.name == "nt":
+        pytest.skip("POSIX shell script")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    bad = bin_dir / "xterm"
+    bad.write_text("#!/bin/sh\nexit 2\n")
+    bad.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin")
+    monkeypatch.delenv("TERMINAL", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    from roundtable_ai.errors import RTError
+
+    with pytest.raises(RTError) as exc:
+        desktop.open_terminal(["rt", "launch", "opus"], tmp_path, "Roundtable opus")
+    assert "exit 2" in exc.value.message and "rt launch opus" in exc.value.hint

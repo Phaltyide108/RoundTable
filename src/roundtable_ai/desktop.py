@@ -39,15 +39,17 @@ def terminal_command(argv: list[str], cwd: str, title: str, *, platform: str | N
     bash = which("bash") or "/bin/sh"
     run = [bash, "-lc", shell_line]
     preferred = os.environ.get("TERMINAL", "").strip()
-    candidates = ([preferred] if preferred else []) + ["gnome-terminal", "konsole", "xfce4-terminal", "mate-terminal",
+    candidates = ([preferred] if preferred else []) + ["gnome-terminal", "ptyxis", "konsole", "xfce4-terminal", "mate-terminal",
                                                         "kitty", "alacritty", "wezterm", "foot", "x-terminal-emulator", "xterm"]
     for name in candidates:
         exe = which(name)
         if not exe:
             continue
         base = os.path.basename(name)
-        if base == "gnome-terminal":
-            return [exe, f"--title={title}", f"--working-directory={cwd}", "--", *run]
+        if base == "gnome-terminal":  # --title is deprecated in recent versions, so it is left out
+            return [exe, f"--working-directory={cwd}", "--", *run]
+        if base == "ptyxis":
+            return [exe, "--new-window", f"--working-directory={cwd}", "--", *run]
         if base == "konsole":
             return [exe, "--workdir", cwd, "-p", f"tabtitle={title}", "-e", *run]
         if base in ("xfce4-terminal", "mate-terminal"):
@@ -64,7 +66,7 @@ def terminal_command(argv: list[str], cwd: str, title: str, *, platform: str | N
     return None
 
 
-def _spawn(cmd: list[str], cwd: str, *, console: bool = False) -> None:
+def _spawn(cmd: list[str], cwd: str, *, console: bool = False) -> subprocess.Popen:
     kwargs: dict = {"cwd": cwd, "stdin": subprocess.DEVNULL}
     if not console:
         kwargs.update(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -73,7 +75,7 @@ def _spawn(cmd: list[str], cwd: str, *, console: bool = False) -> None:
         kwargs["creationflags"] = 0x00000010 if console else 0x00000008 | 0x00000200
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen(cmd, **kwargs)
+    return subprocess.Popen(cmd, **kwargs)
 
 
 def open_terminal(argv: list[str], cwd: str | Path, title: str) -> str:
@@ -83,10 +85,17 @@ def open_terminal(argv: list[str], cwd: str | Path, title: str) -> str:
         raise RTError(NOT_FOUND, "no terminal program found to open a window",
                       "run this in a terminal yourself: " + manual_line(argv, cwd))
     try:
-        _spawn(cmd, cwd, console=os.name == "nt")
+        proc = _spawn(cmd, cwd, console=os.name == "nt")
     except OSError as exc:
         raise RTError(NOT_FOUND, f"could not open a terminal ({exc})", "run this in a terminal yourself: " + manual_line(argv, cwd)) from None
-    return f"opened a terminal window: {title}"
+    try:  # a terminal that rejects its arguments exits at once with an error; say so instead of failing silently
+        code = proc.wait(timeout=1.5)
+    except subprocess.TimeoutExpired:
+        code = None
+    if code not in (None, 0):
+        raise RTError(NOT_FOUND, f"{os.path.basename(cmd[0])} could not open a window (exit {code})",
+                      "run this in a terminal yourself: " + manual_line(argv, cwd))
+    return f"opened a terminal window for {title.replace('Roundtable ', '')}"
 
 
 def manual_line(argv: list[str], cwd: str | Path) -> str:

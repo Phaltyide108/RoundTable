@@ -15,7 +15,9 @@ rt launch opus
 
 `rt launch` runs `claude` in the seat's working copy with `--model`, an MCP config file bound to that seat (`.roundtable/seats/opus/mcp.json`) and a first message telling it to call `rt_sync`. Use `rt launch opus --print` to see the exact command.
 
-To use Roundtable from Claude Code sessions you start yourself (including the VS Code extension):
+**In VS Code:** add the seat with `--app claude-vscode`. Roundtable writes a `.mcp.json` bound to that seat into the seat's working copy (hidden from git through `.git/info/exclude`). The dashboard's **Start** opens that folder in VS Code; in the Claude Code panel, allow the `roundtable` server when asked and send "check roundtable".
+
+To use Roundtable from Claude Code sessions you start yourself in the project folder:
 
 ```bash
 rt setup claude-code     # writes .mcp.json in the project folder
@@ -52,7 +54,30 @@ It adds a `[mcp_servers.roundtable-<project>]` table with `tool_timeout_sec = 12
 - **Codex CLI:** `rt launch sol` starts `codex` in the seat's working copy, with the model and the seat binding passed as `-c` overrides.
 - **Commits from Codex:** Codex's sandbox keeps `.git` read-only (checked with Codex CLI 0.162.1), so a plain `git commit` needs your approval each time. Seats are told they can pass `commit=true` to `rt_task checkpoint` or `rt_task close` instead: Roundtable then commits only the files leased to that seat, with the seat as the commit author.
 - **ChatGPT desktop app:** switch to Codex mode, open the seat's working copy folder (`rt seat list` shows it), and say "join Roundtable as sol56".
-- **VS Code extension:** open the seat's working copy folder and say the same.
+- **VS Code extension:** add the seat with `--app codex-vscode`; the dashboard's **Start** opens its working copy in VS Code. Send "join Roundtable as sol" in the Codex panel.
+
+## Gemini CLI, Qwen Code, opencode, Cursor
+
+Add the seat with `--app gemini-cli`, `qwen-code`, `opencode` or `cursor`. Roundtable writes that app's project settings file, bound to the seat, into the seat's working copy and hides it from git:
+
+| App | File in the working copy | Format |
+| --- | --- | --- |
+| Gemini CLI | `.gemini/settings.json` | `mcpServers.roundtable` with `command`, `args`, `env`, `timeout`, `trust: false` |
+| Qwen Code | `.qwen/settings.json` | same as Gemini CLI |
+| opencode | `opencode.json` | `mcp.roundtable` with `type: "local"`, `command` (array), `environment` |
+| Cursor | `.cursor/mcp.json` | `mcpServers.roundtable` with `type: "stdio"`, `command`, `args`, `env` |
+
+`rt launch gem` (or **Start**) opens the app in that folder; send "check roundtable" once it is ready. Cursor is opened with its `cursor` command. The model is chosen inside the app; the model name you give Roundtable is used for display and to tell companies apart.
+
+## GitHub Copilot CLI
+
+```bash
+rt setup copilot        # adds Roundtable to ~/.copilot/mcp-config.json (type local, tools ["*"])
+rt seat add cop --model gpt-6.1-sol --app copilot-cli
+rt launch cop           # starts copilot in the seat's working copy
+```
+
+Send "join Roundtable as cop" when it is ready.
 
 ## Other MCP apps
 
@@ -66,4 +91,4 @@ Register the seat with `--app other`.
 
 ## ChatGPT Chat mode
 
-Not supported in v0.1. Chat mode reaches custom MCP servers only through Developer Mode and a public HTTPS tunnel, which conflicts with Roundtable's local-only design.
+Not supported. Chat mode reaches custom MCP servers only through Developer Mode and a public HTTPS tunnel, which conflicts with Roundtable's local-only design.

@@ -7,7 +7,7 @@ usage: rt [-h] [--version] [--home HOME] [--seat AS_SEAT] [--key SEAT_KEY]
           [--json]
           command ...
 
-Roundtable: AI models planning, building and reviewing one project together.
+Roundtable: AI models planning, building and reviewing one project together. Easiest: rt ui opens the dashboard, where every command below is a button.
 
 positional arguments:
   command
@@ -46,6 +46,14 @@ options:
   --seat AS_SEAT  act as this seat (for apps without MCP)
   --key SEAT_KEY  act as the seat that joined with this key
   --json          print JSON
+
+commands by purpose:
+  start here        ui, init, status, doctor
+  models            seat (add, list, pause, resume, release, remove), launch, setup
+  plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
+  problems          alert, vote, freeze, unfreeze
+  follow along      log, usage, watch, export, compact, config
+  for apps          mcp, call
 ```
 
 ## rt init
