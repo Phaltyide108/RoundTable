@@ -173,11 +173,20 @@ def score(task: str, folder: Path, timeout: int = 180) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- contenders
 
+def _python() -> str:
+    """The Python command the contenders should use: some computers have only python3."""
+    return "python" if shutil.which("python") or not shutil.which("python3") else "python3"
+
+
+def _test_command() -> str:
+    return f"{_python()} -m unittest discover -s tests"
+
+
 def _brief(task: str) -> str:
     """What both the lone AI and the team are told; the full specification is TASK.md in their folder."""
     first = task_text(task).strip().splitlines()[0]
     return (f"{first}\nThe full specification is in TASK.md in this project: read it all and follow it exactly; "
-            "hidden tests will check every rule in it. Write your own tests too (python -m unittest discover -s tests).")
+            f"hidden tests will check every rule in it. Write your own tests too ({_test_command()}).")
 
 
 def _solo_prompt(task: str) -> str:
@@ -187,7 +196,7 @@ def _solo_prompt(task: str) -> str:
 
 def _team_prompt(task: str) -> str:
     return (_brief(task) + "\nSplit the work into tasks with clear files; every task's test command should be: "
-            "python -m unittest discover -s tests")
+            + _test_command())
 
 
 def solo_command(m: Member, folder: Path, prompt: str) -> list[str]:
