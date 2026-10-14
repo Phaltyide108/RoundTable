@@ -18,6 +18,10 @@ Start with `rt doctor`. It checks Python, the project, git, every seat's working
 | Commit stopped by "roundtable: commit stopped" | a seat tried to commit files it doesn't lease | unstage them, or lease them first (`rt_lease extend`) |
 | A proof keeps timing out | slow tests | `rt config set proof.timeout_seconds 1800` |
 | Background wake-ups don't happen | the seat runs in a desktop app, or `claude`/`codex` isn't on PATH | desktop apps can't be woken: answer the notification yourself; for CLI seats, see `rt doctor` |
+| `rt app` opens a browser tab, not a window | no window toolkit found | Linux: install `python3-gi` and `gir1.2-webkit2-4.1` (or WebKit 6), or Chrome/Chromium/Brave/Edge; `rt doctor` says what it found |
+| Roundtable isn't in the app menu | the menu entry was never added | `rt app --install` (remove it with `rt app --uninstall`) |
+| Started from the menu, an AI "is not installed" | the menu didn't pass your terminal's PATH and the login shell didn't add it either | run `rt doctor` from a terminal; make sure `claude`/`codex`/`opencode` are on the PATH your login shell sets (`~/.profile`) |
+| "Ask the table": an AI "couldn't" answer | not signed in, or the app's own limit | the reason is shown on its card; sign in once with `claude`, `codex` or `opencode` in a terminal |
 | No desktop notifications on Linux | `notify-send` not installed | install `libnotify-bin` (Debian/Ubuntu); notifications are also written to `.roundtable/logs/notifications.log` |
 
 ## Logs
@@ -26,6 +30,8 @@ Start with `rt doctor`. It checks Python, the project, git, every seat's working
 - `.roundtable/logs/errors.log`: unexpected errors, with details (please attach to bug reports)
 - `.roundtable/logs/watch.log`, `notifications.log`, `wake-<seat>.log`
 - `.roundtable/proofs/<run>.log`: the background proof runner
+- `.roundtable/logs/run-<seat>.log`, `runner-<seat>.log`: background runs; `council-<id>.log`: a question to the table
+- `~/.config/roundtable/app.log`: the app window when started from a terminal
 - `rt log`: the project's full event history
 
 ## Starting over

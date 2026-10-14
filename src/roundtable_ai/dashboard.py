@@ -244,6 +244,14 @@ def make_handler(session: Session, token: str, port_ref: dict):
                         return self._json(200, ui_state.council_detail(ctx, q.get("id", "")))
                     finally:
                         ctx.close()
+                if url.path == "/api/councils":
+                    from . import council
+
+                    ctx = session.open_ctx()
+                    try:
+                        return self._json(200, {"councils": council.summary(ctx, 100)})
+                    finally:
+                        ctx.close()
                 if url.path == "/api/models":
                     from . import models
 

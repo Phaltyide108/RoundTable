@@ -59,6 +59,18 @@ def check(home: str | None = None) -> Report:
     v = sys.version_info
     (r.ok if v >= (3, 10) else r.fail)(f"Python {v.major}.{v.minor}.{v.micro} ({sys.executable})")
     r.ok(f"Roundtable {__version__}")
+    try:
+        from . import window
+
+        how = "a native window (GTK + WebKit)" if window._gtk_python() else ("an app-mode window (" + Path(window.chromium_paths()[0]).stem + ")"
+                                                                            if window.chromium_paths() else None)
+        if how:
+            r.ok(f"rt app opens Roundtable in {how}" + ("" if window.installed() else "; add it to your app menu with: rt app --install"))
+        else:
+            r.warn("rt app has no window to open Roundtable in, so it uses your web browser",
+                   "install Chrome, Edge, Brave or Chromium (or python3-gi with WebKitGTK on Linux)")
+    except Exception:  # noqa: BLE001 - the app window is a convenience; never fail the checks over it
+        pass
     from .context import open_ctx
 
     try:

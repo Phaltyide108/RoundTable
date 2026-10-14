@@ -16,7 +16,7 @@ const TOASTS = document.getElementById("toasts");
 let S = null;            // last state from the server
 let lastJSON = "";
 let route = { page: "room", parts: [], sub: "" };
-const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false, activity: {}, council: {}, models: {} };
+const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false, activity: {}, council: {}, models: {}, councilList: null };
 const ui = {
   mode: "note", level: null, allAsks: false, started: {}, preview: {}, confirm: {}, pick: {}, wstep: 0,
   accepting: {}, editOpen: false, linkOpen: false, cancelPlan: false, showDone: false, adding: false,
@@ -827,7 +827,16 @@ function councilCard(id, e, fallback) {
       h("span", { class: "cm-state" }, txt, tone === "busy" ? h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")) : null),
       place ? h("span", { class: "place p" + place, title: `The others ranked its answer #${place}` }, "#" + place) : null);
   }));
-  const kids = [head, rescue ? null : h("div", { class: "council-q" }, longText(c.question, "cq-" + id, "", 260)), members];
+  const liveLines = c.members.filter(m => memberState(c, m)[1] === "busy").map(m => {
+    const x = seatOf(m.seat);
+    const now = x && x.now && ago(x.now.t) < 180 ? x.now : null;
+    if (!now || now.kind === "start") return null;
+    const [verb] = STEP[now.kind] || ["is working"];
+    return h("p", { class: "council-live" }, h("strong", { text: m.seat }), " " + verb + ": ",
+      h("span", { class: now.kind === "run" || now.kind === "edit" || now.kind === "read" ? "mono" : "", text: fit(now.text, 160) }));
+  }).filter(Boolean);
+  const kids = [head, rescue ? null : h("div", { class: "council-q" }, longText(c.question, "cq-" + id, "", 260)), members,
+    liveLines.length ? h("div", { class: "council-lives" }, liveLines) : null];
   if (c.final) {
     const by = c.chair ? (rescue ? `${c.chair}'s diagnosis` : c.ranking.length > 1 && placeOf(c, c.chair) === 1
       ? `The table's answer, written by ${c.chair}, whose answer the others ranked best` : `The table's answer, written by ${c.chair}`) : "The answer";
@@ -1305,9 +1314,12 @@ const ORD = n => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n 
 
 PAGES.council = st => {
   const id = (route.sub || "").toUpperCase();
+  if (!id && !cache.councilList) getJSON("/api/councils").then(r => { cache.councilList = r.councils || []; render(); }).catch(() => {});
+  const all = !id ? (cache.councilList && cache.councilList.length >= (st.councils || []).length ? cache.councilList : st.councils || []) : [];
   if (!id) return { title: "Questions to the table", body: [
     h("p", { class: "muted", text: "Ask from the message box: every AI answers on its own, they rank each other's answers without names, and the one the others ranked best writes the final answer. Second opinions on failing tasks show up here too." }),
-    (st.councils || []).length ? h("ul", { class: "tasklist" }, st.councils.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/council/" + c.id) },
+    h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: () => { ui.compose = "ask"; close(); render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); } }, icon("ask", "sm"), "Ask a new question")),
+    all.length ? h("ul", { class: "tasklist" }, all.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/council/" + c.id) },
       h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work"), "aria-hidden": "true" }),
       h("span", { class: "t" }, h("strong", { text: c.kind === "rescue" ? `Second opinion on ${c.task}` : fit(c.question, 120) }),
         h("span", { text: `${c.id} · ${c.at} · ${c.members.map(m => m.seat).join(", ")}` }))))))
@@ -2211,6 +2223,7 @@ window.addEventListener("hashchange", () => {
   route = parseRoute();
   if (taskRoute()) loadTask(taskRoute()).then(render);
   if (route.page === "ai" && route.sub) loadActivity(route.sub).then(render);
+  if (route.page === "council" && !route.sub) cache.councilList = null;
   render();
 });
 document.addEventListener("keydown", e => {

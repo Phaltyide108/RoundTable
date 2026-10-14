@@ -1,8 +1,8 @@
 # Roundtable
 
-Let several AI models plan, build and review one project together, each in its own chat. For example, Claude in Claude Code and GPT in Codex.
+Let several AI models plan, build and review one project together, and ask them anything as a council. For example, Claude in Claude Code, GPT in Codex and a free model in opencode.
 
-No API keys: every model runs in the app you already use, on your normal plan. Roundtable is the shared table they sit at: a small local program that keeps the plan, the tasks, who may edit which files, the reviews and the alerts. Models never talk to each other directly. They read and write that shared record through MCP, the standard way AI apps connect to tools.
+No API keys: every model runs in the app you already use, on your normal plan. Roundtable is the shared table they sit at: a desktop app and a small local program that keep the plan, the tasks, who may edit which files, the reviews and the alerts. Models never talk to each other directly. They read and write that shared record through MCP, the standard way AI apps connect to tools.
 
 ```text
   Claude Code      Claude app      ChatGPT app      Codex CLI      ...any MCP app
@@ -18,6 +18,7 @@ No API keys: every model runs in the app you already use, on your normal plan. R
 
 ## Why
 
+- **Smarter together.** Ask the table a question and every AI answers on its own; they rank each other's answers without knowing who wrote which, and the best one writes the final answer, fixing what the others caught. When a task fails twice, a model from another company diagnoses it by itself.
 - **Independent thinking.** Planners draft blind: no model sees another's plan until all drafts are in. Drafts are critiqued without author names, so no model favors a company or itself.
 - **Cross-checking.** Reviews go to a model from a different company first. Different model families tend to catch different mistakes.
 - **You control the cost.** Pick review depth `low`, `mid` or `high`. At `low`, no model reads another's code; the tests are the gate.
@@ -55,24 +56,36 @@ uv tool install git+https://github.com/Phaltyide108/RoundTable
 
 From a downloaded copy of this repository: `sh scripts/install.sh` (or `pipx install .`).
 
+The installer adds **Roundtable to your app menu** (Launchpad on macOS, the Start menu on Windows): open it like any other app. If it didn't, run `rt app --install`.
+
 Check it: `rt --version`. If your system already has a different `rt` program, use `roundtable` instead: every command works with either name. Upgrade later with `pipx upgrade roundtable-ai` or `uv tool upgrade roundtable-ai`.
 
-## Quickstart: the dashboard
+## Quickstart: the app
 
-In your project's main folder (a git repository with at least one commit):
+Open **Roundtable** from your app menu (or run `rt app` in a terminal). It opens in a window of its own, not a browser tab. The first visit is four steps:
 
-```bash
-rt ui
-```
-
-Your browser opens the dashboard. The first visit is three steps:
-
-1. **Set up Roundtable in this folder** (it only adds a hidden `.roundtable` folder).
-2. **Choose your AIs**: tick the apps they run in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps). Names and models are filled in for you. Two from different companies catch each other's mistakes.
-3. **Start them.** Easiest: **Run in the background**. Roundtable starts Claude Code or Codex by itself, with your own login, whenever that AI has work, and puts it back to sleep when it is done: nothing gets stuck waiting for you to type "check roundtable". Or open each one in a terminal (already connected) and watch it there. Editors open the right folder, and the page shows the one message to send.
-4. **Give them a goal.** Choose **Plan together** (each AI writes a plan, they compare notes and agree) or **Just do it** (one AI splits your message into tasks at once, e.g. "sol: fix the usage numbers. opus: add a thinking setting"), how carefully they check each other (Light, Standard or Thorough), and whether to **start without asking you** to approve the plan.
+1. **Set up Roundtable in a folder**: **Browse…** to your project (a git repository with at least one commit). It only adds a hidden `.roundtable` folder.
+2. **Choose your AIs**: tick the apps they run in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps). Names are filled in; the model box lists every model the app offers, free ones marked. Two from different companies catch each other's mistakes.
+3. **Start them.** Easiest: **Run in the background**. Roundtable starts Claude Code, Codex or opencode by itself, with your own login, whenever that AI has work, and puts it back to sleep when it is done: nothing gets stuck waiting for you to type "check roundtable". Or open each one in a terminal (already connected) and watch it there. Editors open the right folder, and the app shows the one message to send.
+4. **Give them a goal, or ask them something.** Choose **Plan together** (each AI writes a plan, they compare notes and agree) or **Just do it** (one AI splits your message into tasks at once, e.g. "sol: fix the usage numbers. opus: add a thinking setting"), how carefully they check each other (Light, Standard or Thorough), and whether to **start without asking you** to approve the plan. Or choose **Ask the table** to put a question to all of them.
 
 Then you are in **the room**. Everything the AIs do arrives in the middle as a conversation, and while they work you see it live: their thinking, the commands they run and the files they edit. Whatever needs you (approving the plan, changes to check, work the AIs found, problems, tied votes, an AI that isn't started) is pinned just above the message box with the buttons that settle it; when nothing is pinned, you have nothing to do. The team sits around the table on the left, the plan and every task are on the right, and anything else (an AI's usage, its model and how hard it thinks, everything it did, a task's tests and diff, settings, help) opens as a panel over the room and closes with Esc. **Help** lists the terminal command for every button.
+
+## Ask the table
+
+Choose **Ask the table** in the message box, or in a terminal:
+
+```bash
+rt ask "Why does the login sometimes take ten seconds? Where would you fix it?"
+```
+
+1. Every AI answers on its own, in parallel. They can read your project and its git history, read-only.
+2. Each one reads all the answers as Answer A, B, C (shuffled, no names) and says what is right and wrong in each, then ranks them, its own included.
+3. The AI whose answer the others ranked best writes the final answer from every answer and review.
+
+The conversation shows each AI's progress live; the question's panel shows every answer, every review and how they ranked each other. **Build this** turns the answer into a goal for the same AIs; **Ask a follow-up** keeps the context. This is [Andrej Karpathy's LLM Council](https://github.com/karpathy/llm-council), run with your own subscriptions instead of an API key, and with your code open to it.
+
+The same council works by itself when building: a task that fails its tests twice in a row gets a diagnosis from a model of another company, sent to the builder as a suggestion it must answer.
 
 ## Does a team do better than one AI?
 
@@ -87,7 +100,7 @@ It uses your real Claude Code and Codex limits, one contender at a time. Each co
 
 ## Quickstart: the terminal
 
-The same, without the browser:
+The same, without the app:
 
 ```bash
 rt init
@@ -112,14 +125,14 @@ Plain `rt` tells you the next step; `rt --help` groups the commands by purpose.
 | Codex in VS Code | `codex-vscode` | Start opens VS Code; `rt setup codex` once | send "join Roundtable as sol" |
 | Gemini CLI | `gemini-cli` | Start / `rt launch` | yes (per-seat `.gemini/settings.json`) |
 | Qwen Code | `qwen-code` | Start / `rt launch` | yes (per-seat `.qwen/settings.json`) |
-| opencode | `opencode` | Start / `rt launch` | yes (per-seat `opencode.json`) |
+| opencode (75+ models, some free) | `opencode` | **Run in the background**, or Start / `rt launch` | yes (per-seat `opencode.json`) |
 | GitHub Copilot CLI | `copilot-cli` | Start / `rt launch`; `rt setup copilot` once | send "join Roundtable as …" |
 | Cursor | `cursor` | Start opens the folder in Cursor | yes (per-seat `.cursor/mcp.json`) |
 | Claude desktop app | `claude-app` | `rt setup claude-app` once, new chat | send "join Roundtable as …"; plans and reviews only |
 | ChatGPT desktop app, Codex mode | `codex-app` | `rt setup codex` once, open the folder | send "join Roundtable as …" |
 | Anything else with MCP | `other` | add the server by hand (the AI's panel shows what to enter) | send "join Roundtable as …" |
 
-Per-seat settings files are written into that model's working copy and hidden from git (`.git/info/exclude`), so they never show up as changes. Claude Code and Codex are verified end to end; the other apps' settings formats follow their current documentation.
+Per-seat settings files are written into that model's working copy and hidden from git (`.git/info/exclude`), so they never show up as changes. Claude Code and Codex are verified end to end with the real apps; opencode's event stream and model list were read from the real app, its background runs tested with a stand-in; the other apps' settings formats follow their current documentation.
 
 ## How a project flows
 
@@ -204,7 +217,7 @@ Any number of seats can join, from any companies, including two from the same co
 
 ## Honest limits
 
-- Only Claude Code and Codex can run in the background (Roundtable starts them headless with `claude -p` and `codex exec`). Chat panels, editors and desktop apps act only while you talk to them: `rt watch` notifies you and you say "check roundtable" in that chat.
+- Only Claude Code, Codex and opencode can run in the background or answer questions to the table (Roundtable starts them headless with `claude -p`, `codex exec` and `opencode run`). Chat panels, editors and desktop apps act only while you talk to them: `rt watch` notifies you and you say "check roundtable" in that chat.
 - An AI running in the background may, by default, edit files in its own working copy, use git and run the project's test commands; anything else is refused. `rt config set runner.permissions all` lets it run any command in its working copy.
 - One computer: all models must run on the machine that holds the project (no sync across computers yet).
 - Seats on the same subscription share its usage limit.
@@ -218,6 +231,7 @@ Any number of seats can join, from any companies, including two from the same co
 | Anything odd | `rt doctor` checks everything and prints the fix for each problem |
 | "seat X is live in another chat" | if that chat is closed: `rt seat release X` |
 | Nothing happens after you give a goal | the AIs aren't running: the room says so; choose **Run them in the background** (or `rt run opus --detach`) |
+| `rt app` opens a browser tab instead of a window | no window toolkit found: install Chrome, Edge, Brave or Chromium (Linux: or `python3-gi` with WebKitGTK); `rt doctor` says which one it uses |
 | An AI running in the background is "stuck" | its panel shows why (often: not signed in to the app on this computer); sign in once with `claude` or `codex`, then **Try again now** |
 | A task "waits to merge" | your main folder has uncommitted changes or a conflict; see `rt status`, then `rt task merge` |
 | Claude Code shows the server as pending | run `claude` in the project and approve the `roundtable` server |
@@ -241,13 +255,13 @@ Measured on Linux with Python 3.13 (October 2026):
 
 One SQLite file holds everything; no server or daemon has to run. A Go binary such as Beads starts faster per command than Python does, so `rt` commands from the terminal take about 0.1 s.
 
-## Compared with Beads, Gas Town and MCP Agent Mail
+## Compared with LLM Council, Beads, Gas Town and MCP Agent Mail
 
-Roundtable now covers Beads' tracking basics (priorities, kinds, labels, epics, links, discovered work, memory, compaction) and adds what none of them have: models from different companies planning blind and critiquing each other anonymously, tests run by Roundtable itself before anything closes, enforced file barriers with per-model working copies, review depth you choose, severity 1–5 alerts that can stop work, desktop chat apps as members, a usage view per model, and a full dashboard. Still missing: syncing one table across several computers (Beads uses Dolt for that), workflow templates, pull-request based merging, and the scale of Gas Town (20–50 agents). The full list is in [docs/comparison.md](docs/comparison.md).
+Roundtable runs LLM Council's method (independent answers, anonymous ranking, a chairman) with your own subscriptions and your code open to it, and turns the answer into work. It covers Beads' tracking basics (priorities, kinds, labels, epics, links, discovered work, memory, compaction) and adds what none of them have: models from different companies planning blind and critiquing each other anonymously, tests run by Roundtable itself before anything closes, enforced file barriers with per-model working copies, review depth you choose, severity 1–5 alerts that can stop work, desktop chat apps as members, a usage view per model, and a full dashboard. Still missing: syncing one table across several computers (Beads uses Dolt for that), workflow templates, pull-request based merging, and the scale of Gas Town (20–50 agents). The full list is in [docs/comparison.md](docs/comparison.md).
 
 ## Credits and inspiration
 
-- Planning together follows [Andrej Karpathy's LLM Council](https://github.com/karpathy/llm-council): models answer independently, review each other's answers anonymously, and a chairman merges the result. Roundtable applies that to plans and code, with you as the final vote.
+- Planning together and asking the table follow [Andrej Karpathy's LLM Council](https://github.com/karpathy/llm-council): models answer independently, review each other's answers anonymously, and a chairman merges the result. Roundtable applies that to questions, plans and code, with you as the final vote.
 - Tracking ideas come from Steve Yegge's [Beads](https://github.com/steveyegge/beads) and Gas Town; messaging ideas from [MCP Agent Mail](https://github.com/Dicklesworthstone/mcp_agent_mail).
 - The dashboard follows the design rules of [Impeccable](https://impeccable.style/).
 
@@ -261,7 +275,7 @@ Roundtable now covers Beads' tracking basics (priorities, kinds, labels, epics, 
 - [Edge cases](docs/edge-cases.md)
 - [Architecture](docs/architecture.md), for contributors
 - [First real run](docs/first-real-run.md): Claude and GPT build two features of Roundtable itself, step by step
-- [Comparison with Beads, Gas Town and MCP Agent Mail](docs/comparison.md): what we lack, what we add
+- [Comparison with LLM Council, Beads, Gas Town and MCP Agent Mail](docs/comparison.md): what we lack, what we add
 
 ## Contributing
 

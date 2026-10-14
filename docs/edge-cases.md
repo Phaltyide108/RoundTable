@@ -75,3 +75,26 @@ Every failure has a defined outcome and a message that says what to do next. Mos
 | A 5-hour or weekly limit window has reset since the last numbers | Shown as reset, never as the old percentage; numbers older than 30 minutes say so |
 | Database from Roundtable 0.2 | Migrated to schema 3 on first open, after a backup (`roundtable.db.backup-v2`); a column added by a half-finished upgrade is skipped |
 | `rt bench` contender produces no code, broken code or hangs the tests | Scored 0 with the reason; the hidden tests run in a copy with a time limit and never enter a contender's folder |
+
+## Added in 0.4: the app, asking the table, opencode
+
+| Situation | What happens |
+| --- | --- |
+| `rt app` on Linux with GTK and WebKit | A native window (the desktop's own web view), run by the system Python; links to other sites open in your browser |
+| No GTK/WebKit, but Chrome, Edge, Brave, Chromium or Vivaldi | An app-mode window with its own profile (no tabs, no address bar, never mixed with your browsing) |
+| No window toolkit at all | Your default browser opens it; the app stops a while after the tab is closed. `rt doctor` says which one is used |
+| Started from the app menu | It asks your login shell for the PATH your terminal has (so `claude`, `codex`, `opencode` are found) and opens your most recent project |
+| The window is closed | The dashboard stops once no window has asked anything for a few seconds; background runs and questions keep going (they are their own processes) |
+| Two `rt app` at once | Each gets its own port and window |
+| A question to the table where one AI fails (not signed in, its limit) | The others go on; its card says why. With one answer left, that answer is the final one; with none, the question shows why it failed |
+| An AI gives no FINAL RANKING | Its review is kept but its ranking is not counted; with no rankings at all, the chair is the next in turn |
+| The chair can't write the final answer | The best-ranked answer stands as the final answer, and the card says so |
+| Asking while an AI is building | Questions run read-only next to the build; Claude Code without edit tools or MCP servers, Codex in its read-only sandbox, opencode with edits and commands denied |
+| Stopping a question | `rt ask --cancel Q3` or "Stop it": the answering processes are ended |
+| A task fails its tests twice in a row | Another company's AI (one Roundtable can run) diagnoses it in the builder's copy and sends a suggestion the builder must answer; once per losing streak; `council.rescue = false` turns it off |
+| An opencode model needs a provider you haven't signed in to | opencode's own error is shown and the run backs off like any other; free models need no sign-in |
+| opencode asks for a permission in a background run | Roundtable passes the allowed commands up front (its own files, git, the project's test commands); anything else is refused by opencode, or allowed with `runner.permissions = "all"` |
+| Codex in a background run calls Roundtable's tools | They are pre-approved for that run (`default_tools_approval_mode`); without it `codex exec` refused every call |
+| A plan's test command can't run here (`python` when only `python3` exists, pytest not installed) | Refused when the plan or the change is written, with the fix (`use python3`, `python3 -m unittest`) |
+| An AI is waiting for a change it asked for, or a problem it raised | It is not woken for that task until the change or problem is settled |
+| A benchmark contender hands the work to SQLite | `rt bench` scores it 0 ("uses sqlite3, which the task forbids") |

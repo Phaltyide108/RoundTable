@@ -29,4 +29,9 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
 if ($LASTEXITCODE -ne 0) { Fail "installation failed; see the messages above." }
 Write-Host ""
 Write-Host "Roundtable installed. If 'rt' is not found, open a new terminal."
-Write-Host "Next, in your project folder:  rt init   then   rt seat add <name> --model <model> --app claude-code|codex-cli|claude-app|codex-app"
+$rt = Get-Command rt -ErrorAction SilentlyContinue
+if ($rt) {
+  & $rt.Source app --install | Out-Null
+  if ($LASTEXITCODE -eq 0) { Write-Host "Roundtable is in your Start menu: open it like any other app." }
+}
+Write-Host "Next: open Roundtable from the Start menu, or run:  rt app   (it can set up your project folder)"

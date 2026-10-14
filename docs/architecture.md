@@ -56,10 +56,12 @@ Plain Python, standard library only (plus `tomli` on Python 3.10). About 9,400 l
 | Front ends | `mcp_server.py`, `cli.py`, `dashboard.py` + `ui/` | Turn a model's tool call, a terminal command or a button click into `dispatch.call` |
 | Core | `dispatch.py`, `registry.py`, `context.py`, `errors.py` | Identity, permission, STOP checks, parameter validation, the inbox line, error handling, usage metering |
 | Storage | `db.py`, `schema.py`, `config.py`, `paths.py` | SQLite with transactions and migrations; validated settings; finding the project |
-| Collaboration | `seats.py`, `plans.py`, `tasks.py`, `leases.py`, `reviews.py`, `suggestions.py`, `alerts.py`, `votes.py`, `memory.py` | The rules of the table |
+| Collaboration | `seats.py`, `plans.py`, `tasks.py`, `leases.py`, `reviews.py`, `suggestions.py`, `alerts.py`, `votes.py`, `memory.py`, `council.py` | The rules of the table; asking the table and second opinions |
 | Reading | `sync.py`, `inbox.py`, `report.py`, `ui_state.py`, `events.py`, `usage.py` | Digests, the one-line inbox, status, dashboard data, the event log, usage numbers |
 | Git and tests | `gitops.py`, `guard.py`, `proofs.py`, `proofrun.py` | Working copies, branches, diffs, merges, the commit guard, running test commands |
-| Your computer | `appsetup.py`, `launch.py`, `apps.py`, `desktop.py`, `doctor.py`, `watch.py`, `notify.py` | Connecting apps, starting models, opening terminals and editors, health checks, timing and notifications |
+| Your computer | `appsetup.py`, `launch.py`, `apps.py`, `models.py`, `desktop.py`, `doctor.py`, `watch.py`, `notify.py` | Connecting apps, each app's models, starting models, opening terminals, editors and folder choosers, health checks, timing and notifications |
+| Background work | `runner.py`, `activity.py`, `bench.py` | Starting Claude Code, Codex and opencode headless, reading their live steps, the benchmark |
+| The app | `window.py`, `webview_gtk.py`, `icon.py` | Its own window (GTK WebKit or a Chromium app window), the app-menu entry, the icon |
 
 Each operation (`task.claim`, `plan.lock`, ...) is a plain function registered with `@op`. The registration says who may call it (a model, you, or either), its parameters, and which model tool it belongs to. The MCP tool list and the `rt` help are generated from these registrations, so the three front ends cannot drift apart.
 
@@ -148,22 +150,49 @@ backlog ─(you accept)─> open ─(dependencies done)─> ready ─(claim)─>
 - **Fixed limits on planning:** at most 3 planners, 2 critiques per model, 300-word drafts. A fifth model adds its own work, not more reading for everyone.
 - **Measured.** Every call's size is recorded, so `rt usage` shows exactly what coordination costs, next to each model's own context and plan limits. The tool definitions cost about 2,900 tokens once per chat.
 
-## 7. The dashboard
+## 7. The app
 
-`rt ui` starts a small web server inside the same Python process, on `127.0.0.1` only, and opens your browser.
+`rt app` (or `rt ui`, or Roundtable in your app menu) starts a small web server inside the same Python process, on `127.0.0.1` only, and shows it in a window of its own (`window.py`):
+
+1. **Linux:** a native GTK window with WebKit, the desktop's own web view. The GTK bindings come with the desktop, not with pip, so the window is a separate small script (`webview_gtk.py`) run by the system Python; Roundtable itself stays standard-library only. It remembers its size and zoom, opens outside links in your browser, and lets the page show notifications.
+2. **Elsewhere, or without WebKit:** Chrome, Edge, Brave, Chromium or Vivaldi in app mode (`--app=URL`), with its own profile so it never mixes with your browsing. Edge ships with every Windows 10/11.
+3. As a last resort, your default browser; the server then stops a while after the page stops asking.
+
+When the window closes, the server waits until no other window has polled for a few seconds, then stops. Started from the app menu, it first asks your login shell for the PATH your terminal has, so `claude`, `codex` and `opencode` are found, and opens your most recent project. `rt app --install` writes the menu entry and icons (a `.desktop` file on Linux, `~/Applications/Roundtable.app` on macOS, a Start menu shortcut on Windows); `icon.py` draws the icon as PNG, ICO and ICNS in plain Python. `rt ui --browser` keeps the plain browser tab.
 
 - The page (`ui/index.html`, `app.css`, `app.js`) has no framework and no build step. Every three seconds it asks `/api/state` for the whole picture (built by `ui_state.py` with plain queries, no git commands) and redraws, keeping what you were typing.
 - Buttons call `/api/action` with a Roundtable operation, which runs through the same `dispatch.call` as the terminal, acting as you. Setting up, opening another project, starting a model and connecting an app go through `/api/do`.
 - **Safety:** it listens only on 127.0.0.1; it checks the `Host` header (so a malicious website cannot reach it by DNS tricks); every change needs a random token embedded in the page and a same-origin request; a strict content security policy blocks injected scripts; all text is inserted as text, never as HTML; models can never call the dashboard.
 - The screen is one room: the event log rendered as a conversation in the middle (each event type turned into one plain sentence), the decisions waiting for you pinned above the message box, the team on the left and the plan on the right. Every other view is a panel over the room addressed by the URL (`#/task/T3`, `#/ai/opus`), so links and the back button work.
-- Without a project in the current folder it shows the set-up screen, and it can switch between projects without restarting.
+- Without a project in the current folder it shows the set-up screen, and it can switch between projects without restarting; "Browse…" opens the computer's own folder chooser (zenity, kdialog or GTK on Linux, `osascript` on macOS, PowerShell on Windows).
+- Model pickers ask `/api/models` for each app's own list (`models.py`): Claude Code's models, Codex's `~/.codex/models_cache.json`, and `opencode models --verbose`, with free models marked. Kept for an hour.
+- Text the AIs write (answers, diagnoses) is turned into DOM nodes by a small markdown reader; it never becomes HTML.
+
+## 7a. Asking the table
+
+`council.py` is Andrej Karpathy's LLM Council, run by apps Roundtable can start itself (Claude Code, Codex, opencode) with your own subscriptions and with the project open to them, read-only:
+
+```text
+question ─> answering ─> ranking ─> combining ─> done
+             every AI      each sees      the author of the
+             on its own    Answer A, B, C best-ranked answer
+             (parallel)    (shuffled, no  writes the final one
+                           names) + FINAL
+                           RANKING
+```
+
+- `council.ask` (the message box, or `rt ask`) records the question and its members and starts `python -m roundtable_ai _council Q1`, a process of its own, so the app and the CLI only watch the database (`councils`, `council_parts`).
+- Each member runs headless with no way to change anything: Claude Code with read-only tools (`Read`, `Grep`, `Glob`, `git log/show/diff`, web search) and `--strict-mcp-config`; Codex with `-s read-only`; opencode with edits and commands denied through `OPENCODE_PERMISSION`. Their steps go to the same activity files as background runs, so the room shows what each one is reading.
+- The answers are shuffled and labelled A, B, C. Every member that answered reviews all of them (its own included, without knowing which) and ends with a `FINAL RANKING`. Rankings are averaged; the author of the best answer chairs (`council.chair = rotate` takes turns instead) and writes the final answer from all answers and reviews.
+- Failures are local: an AI that fails is marked with its reason and the others go on; one answer left becomes the final answer; a chair that fails leaves the best-ranked answer standing.
+- **Second opinions** use the same machinery: after the second failed proof in a row (`proofs.finish` calls `council.maybe_rescue`), one AI from another company reads the failure in the builder's own working copy and its diagnosis is sent to the builder as a suggestion, which the builder must answer before closing. Once per losing streak; `council.rescue = false` turns it off.
 
 ## 8. Time: who wakes whom
 
 Models only act when their app sends them a message. Roundtable cannot type into a chat window, but it can start Claude Code and Codex itself:
 
-- **Background runs** (`runner.py`, `rt run <seat>`, or **Run in the background** in the dashboard): one small process per seat checks the table every few seconds. When the seat has work (`runner.pending`: a draft, critique, merge or approval it owes, an unacknowledged alert, a review, its own task to finish or fix, a ready task it can claim, or a new note from you) it runs the app headless: `claude -p "<what to do>" --output-format stream-json --verbose --model ... --effort ... --resume <session> --permission-mode acceptEdits --allowedTools ...`, or `codex exec --json -m ... -c model_reasoning_effort=... -c sandbox_mode="workspace-write" [resume <thread>] "<what to do>"` (flags checked against Claude Code 2.1.299 and Codex CLI 0.162). It reads the event stream line by line (`activity.py` turns thinking, tool calls, commands, edits and errors into short steps for the dashboard), keeps the session id so the next run continues the same conversation, and writes a heartbeat to `.roundtable/runs/<seat>.json`.
-- A run that leaves the table unchanged is not repeated at once: the wait doubles from 1 to 30 minutes and the seat is shown as stuck with the app's own error. Runs are stopped after `runner.max_minutes`; nothing runs while you have paused everyone or that seat; one runner per seat; environment variables of a Claude Code session that `rt ui` may have been started from are not passed on.
+- **Background runs** (`runner.py`, `rt run <seat>`, or **Run in the background** in the app), for Claude Code, Codex and opencode: one small process per seat checks the table every few seconds. When the seat has work (`runner.pending`: a draft, critique, merge or approval it owes, an unacknowledged alert, a review, its own task to finish or fix, a ready task it can claim, or a new note from you) it runs the app headless: `claude -p "<what to do>" --output-format stream-json --verbose --model ... --effort ... --resume <session> --permission-mode acceptEdits --allowedTools ...`, or `codex exec --json -m ... -c model_reasoning_effort=... -c sandbox_mode="workspace-write" [resume <thread>] "<what to do>"` or `opencode run --format json --thinking --dir ... -m provider/model [--variant ...] [--session ...]` with Roundtable's MCP server and the allowed commands passed in `OPENCODE_CONFIG_CONTENT`. Flags checked with the real Claude Code 2.1.299, Codex CLI 0.159 and opencode 1.19; Codex needs `default_tools_approval_mode = "approve"` for Roundtable's server, or `codex exec` refuses every tool call. It reads the event stream line by line (`activity.py` turns thinking, tool calls, commands, edits and errors into short steps for the dashboard), keeps the session id so the next run continues the same conversation, and writes a heartbeat to `.roundtable/runs/<seat>.json`.
+- A run that leaves the table unchanged is not repeated at once: the wait doubles from 1 to 30 minutes and the seat is shown as stuck with the app's own error or its last words. A run that did something but left the same work open is resumed after 20 seconds, at most three times in a row. A seat waiting for an amendment it proposed, or on a problem it raised, is not woken for that task. Runs are stopped after `runner.max_minutes`; nothing runs while you have paused everyone or that seat; one runner per seat; environment variables of a Claude Code session that `rt ui` may have been started from are not passed on.
 - For seats you opened yourself, `activity.py` reads Claude Code's transcript and Codex's session log for that seat's folder, so the dashboard shows their steps too.
 
 - Every reply carries the inbox line, so active models notice new work on their next call.
@@ -193,6 +222,7 @@ The approach is the same everywhere: refuse early with the exact fix, never leav
 | Versions | Old database, newer database, new MCP protocol, official SDK changes | Automatic migration with a backup; "upgrade Roundtable" for newer databases; fallback handshake; tested against official MCP clients 1.x and 2.x |
 | Your mistakes | Typo in a setting; `rt init` in the wrong folder; project in Dropbox | Refused with the right setting suggested; pointed to the right folder; `rt doctor` warns about syncing |
 | Platform differences | Windows paths and consoles, Python 3.13's change to absolute paths on Windows, slow name lookup on some Macs | Handled in code; CI runs every test on Linux, macOS and Windows with Python 3.10 to 3.14 |
+| Plans | A test command that can't run on this computer | Refused when the plan or amendment is written, naming the missing program and the fix |
 | Background runs | The app is not signed in, not installed, or hangs; the old session is gone; the dashboard is closed; two runners for one seat | The app's own error is shown and the run backs off (1 to 30 minutes); not installed is refused with the install command; runs stop at the time limit; a missing session falls back to a fresh one; runners are their own processes and keep going; a second runner is refused |
 | Bugs in Roundtable | Anything unexpected | Logged with a traceback to `errors.log`; the model gets a clear message and keeps working; the dashboard shows the error instead of crashing |
 
@@ -201,11 +231,13 @@ The approach is the same everywhere: refuse early with the exact fix, never leav
 Being honest about the limits:
 
 - **One computer.** All models must run on the machine that holds the project. There is no sync across computers yet.
-- **Background runs only for Claude Code and Codex.** Other apps act only while you talk to them. A background runner does not restart itself after your computer restarts; start it again from the dashboard.
+- **Background runs only for Claude Code, Codex and opencode.** Other apps act only while you talk to them. A background runner does not restart itself after your computer restarts; start it again from the dashboard.
 - **Models can still do harm with their own shell.** The rules stop mix-ups between cooperating models; they are not a security wall. A model with shell access can do anything you can, and the test commands you lock run with your permissions.
 - **Some apps are verified only against their documentation.** Claude Code and Codex were tested for real; Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor and the VS Code panels follow their documented settings formats but have not been run with a real sign-in.
 - **Tests decide "done".** If a task's test command is weak, a weak change can pass. That is why you read the commands before locking, and why review depth exists.
 
 ## 11. How it is tested
 
-104 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, and the MCP protocol with the official client libraries, and a whole project driven end to end by background runs of stand-in Claude Code and Codex programs that speak the real protocol (planning, building, tests, review, merge, quick mode, failures, starting and stopping), plus the benchmark harness and its hidden tests checked against a reference solution. The first real run, with Claude Code (Claude Opus 5.5) and Codex (GPT-6.1 Sol), went through blind drafts, critique, merge and approval as designed.
+138 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, the app's menu entries and icon, and the MCP protocol with the official client libraries. Stand-in Claude Code, Codex and opencode programs that print the real apps' event streams drive whole projects through background runs (planning, building, tests, review, merge, quick mode, failures, starting and stopping), questions to the table (answers, anonymous ranking, the final answer, failures, follow-ups) and second opinions. The benchmark's hidden tests are checked against a reference (for the SQL task, real SQLite).
+
+Tested for real on Linux (October 2026) with Claude Code 2.1.299 (Claude Opus 5.5) and Codex 0.159 (GPT-6.1 Sol): background runs took a quick plan from goal to merged work in both directions (Claude built and Codex reviewed, then the reverse, with Codex committing through Roundtable from its sandbox), Codex caught the part of the goal the planner had dropped and filed it, a question to the table went through answers, anonymous ranking and the final answer, and the app opened as a native GTK window. opencode's event stream and its model list were read from the real opencode 1.19; a background run of an opencode seat was tested only with the stand-in.

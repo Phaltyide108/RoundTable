@@ -62,4 +62,10 @@ else
   say "Roundtable is installed. Open a NEW terminal so 'rt' is found (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")."
   say "If 'rt' is another program on your system, use the same commands with 'roundtable' instead."
 fi
-say "Next: cd into your project (a git repository with at least one commit) and run:  rt init"
+# add Roundtable to the app menu (a .desktop entry on Linux, ~/Applications/Roundtable.app on macOS)
+RT_BIN=$(command -v rt 2>/dev/null || true)
+[ -n "$RT_BIN" ] || RT_BIN="$HOME/.local/bin/rt"
+if [ -x "$RT_BIN" ] && "$RT_BIN" app --install >/dev/null 2>&1; then
+  say "Roundtable is in your app menu: open it like any other app (search for \"Roundtable\")."
+fi
+say "Next: open Roundtable from your app menu, or run:  rt app   (it can set up your project folder)"

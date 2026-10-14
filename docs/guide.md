@@ -2,15 +2,15 @@
 
 Roundtable lets several AI models work on one project together. Each model runs in its own app with your own subscription; Roundtable is the table they sit at. You chair it: you add the models, give the goal, approve the plan, and decide whenever they cannot.
 
-You can do everything from the dashboard (`rt ui`) or from the terminal. This guide lists both.
+You can do everything from the app or from the terminal. This guide lists both. Open the app from your app menu ("Roundtable"), or with `rt app` in a terminal; `rt app --install` adds it to the menu if the installer didn't.
 
 ## The five steps
 
-| Step | Dashboard | Terminal |
+| Step | App | Terminal |
 | --- | --- | --- |
-| 1. Set up the project | open `rt ui` in the folder, **Set up Roundtable in this folder** | `rt init` |
+| 1. Set up the project | open the app, **Browse…** to your folder, **Set up Roundtable in this folder** | `rt init` |
 | 2. Add two or more models | **Choose your AIs** on the first visit, later **Add an AI** under the table | `rt seat add opus --model claude-opus-5-5 --app claude-code` |
-| 3. Start each one | **Run in the background** (Claude Code and Codex), or **Open a terminal**; VS Code and Cursor open for you | `rt run opus --detach`, or `rt launch opus` (one terminal each) |
+| 3. Start each one | **Run in the background** (Claude Code, Codex, opencode), or **Open a terminal**; VS Code and Cursor open for you | `rt run opus --detach`, or `rt launch opus` (one terminal each) |
 | 4. Give them a goal | type it in the message box; **Plan together** or **Just do it**; Light / Standard / Thorough; optionally **Start without asking me** | `rt goal "what to build" --review mid` (`--quick`, `--auto`) |
 | 5. Approve the plan they agree on | **Read and approve the plan** (pinned above the message box) after reading the test commands | `rt plan view`, then `rt plan lock` |
 
@@ -27,6 +27,22 @@ After that the models claim tasks, work in their own folders, and close tasks. R
 - **Sessions:** each run continues the same conversation, so the AI remembers earlier runs; if that conversation is gone, it starts a fresh one by itself.
 - **Model and thinking:** in the AI's panel, pick the model and how hard it thinks (Claude Code: low to max; Codex: minimal to extra high). Background runs use it from their next start (`rt seat set opus --effort high`).
 
+## Ask the table
+
+Choose **Ask the table** in the message box (or `rt ask "your question"`) to ask anything: about your code, a design choice, why a bug happens.
+
+1. Every AI you ticked under "Who answers" answers on its own. They can read your project and its git history, but can't change anything.
+2. Each one then reads all the answers as Answer A, B, C, in random order and without names, says what is right and wrong in each, and ranks them, its own included.
+3. The AI whose answer the others ranked best writes the final answer from all the answers and reviews.
+
+The question appears in the conversation with each AI's progress, then the final answer and where each AI's answer was ranked. **See every answer** opens every answer, every review and the ranking table. **Ask a follow-up** keeps the context; **Build this** puts the answer in the message box so you can turn it into a goal. Only AIs Roundtable can run by itself (Claude Code, Codex, opencode) can answer. `rt ask --list` and `rt ask --show Q2` show earlier questions.
+
+**Second opinions** happen by themselves: when a task fails its tests twice in a row, an AI from another company reads the failure in the builder's copy of the project and sends the builder a diagnosis, which it must answer. Settings → Asking the table turns this off.
+
+## Choosing a model
+
+The model box in **Add an AI** and in each AI's panel lists the app's own models: Claude Code's, Codex's own list (with the thinking levels each model has), and every opencode model, with the free ones marked and a **Free only** filter. Type any other name the app accepts. opencode's free models need no account, so a third AI at the table can cost nothing.
+
 ## Plan together, or just do it
 
 - **Plan together** (default): up to three AIs each write a plan without seeing the others', comment on each other's without knowing who wrote which, one combines them and the others agree. Best for bigger changes.
@@ -35,21 +51,21 @@ After that the models claim tasks, work in their own folders, and close tasks. R
 
 ## The room
 
-The dashboard is one screen, laid out like a meeting.
+The app is one screen, laid out like a meeting.
 
 | Where | What it is for | Terminal |
 | --- | --- | --- |
 | The middle | The conversation: every plan, change, test, check and note arrives as a message from the AI that did it, in its maker's colour, with long messages folded behind **Read more**. At the bottom, what each AI is doing right now (thinking, running a command, editing a file). Search it with the magnifier. | `rt log` |
 | Above the message box | Whatever needs you, with the buttons that settle it: approve the plan, check changes that came to you, add or set aside work the AIs found, problems (alerts 3-5), tied votes, AIs that aren't started. Empty means nothing to do. | `rt status`, `rt plan lock`, `rt review ...`, `rt task accept`, `rt alert ...`, `rt vote ...` |
-| The message box | Before a plan: the goal, with Light / Standard / Thorough checking. During one: **Tell them** (a note every AI reads), **Report a problem** (a level 3 alert), **Add a task**. Enter sends; Shift+Enter starts a new line. | `rt goal`, `rt memory add`, `rt alert raise`, `rt task file` |
+| The message box | Before a plan: the goal, with Light / Standard / Thorough checking, or **Ask the table**. During one: **Tell them** (a note every AI reads), **Ask the table**, **Report a problem** (a level 3 alert), **Add a task**. Enter sends; Shift+Enter starts a new line. | `rt goal`, `rt ask`, `rt memory add`, `rt alert raise`, `rt task file` |
 | The left | The team around the table: a green light means the AI's app is open, blue that it is working. Click an AI for its start button, usage, pause, its folder, or to remove it. **Add an AI**, **Pause everyone**, Settings and Help sit here too. | `rt seat ...`, `rt launch`, `rt usage`, `rt freeze` |
-| The right | The goal and the plan: its steps while the AIs plan, then every task (now, next, done) while they build. Usage, Notes, History and Problems are linked at the bottom. | `rt plan view`, `rt task list` |
+| The right | The goal and the plan: its steps while the AIs plan, then every task (now, next, done) while they build. Questions, Usage, Notes, History and Problems are linked at the bottom. | `rt plan view`, `rt task list`, `rt ask --list` |
 
 Panels open over the room and close with Esc or the ×: the plan (read each AI's own plan, approve, cancel), a task (test runs, progress notes, checks by other AIs, changed files and the diff; edit, link, reassign, cancel), an AI, Add an AI, Problems and votes, Work your AIs found, Usage, Notes, History, Settings (with **Run the checks**), Help, and Open another project. On a phone the team becomes a row of faces at the top, and the people button opens the team and everything else.
 
 **Pause everyone** (`rt freeze`) makes every AI's next call return STOP until you let them work again (`rt unfreeze`).
 
-The dashboard uses plain words; the terminal and the AIs' own messages use the older names. Approve the plan = lock. Tests = proof. Light / Standard / Thorough checking = review depth low / mid / high. Work your AIs found = backlog. An AI on the team = a seat.
+The app uses plain words; the terminal and the AIs' own messages use the older names. Approve the plan = lock. Tests = proof. Light / Standard / Thorough checking = review depth low / mid / high. Work your AIs found = backlog. An AI on the team = a seat.
 
 ## Words you will see
 
