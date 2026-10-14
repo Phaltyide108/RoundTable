@@ -1040,9 +1040,9 @@ function composer() {
     h("div", { class: "seg", role: "group", "aria-label": live ? "What to send" : "How they work" },
       kinds.map(([v, label, tip, on, fn]) => h("button", { type: "button", "aria-pressed": String(on), title: tip, class: v === "ask" ? "ask-seg" : null, onclick: fn },
         v === "ask" ? icon("ask", "sm") : null, label))),
-    mode === "goal" ? [h("span", { class: "faint", text: "Checking:" }),
+    mode === "goal" ? [h("span", { class: "checking" }, h("span", { class: "faint", text: "Checking:" }),
       h("div", { class: "seg", role: "group", "aria-label": "How carefully they check each other's work" },
-        ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v]))),
+        ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v])))),
       h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
         h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" }))] : null);
   const who = mode === "ask" ? h("div", { class: "askers" },
@@ -2208,6 +2208,18 @@ function setupScreen(st) {
   else notes.push(note(`Git repository on branch ${f.branch || "(detached)"}. Each AI that writes code gets its own copy next to this folder, and finished work is merged into ${f.branch || "your branch"}.`, "ok"));
   const folderIn = h("input", { type: "text", id: "open-folder", "data-k": "open-folder", value: f.folder, spellcheck: "false", autocomplete: "off" });
   const art = welcomeArt(null, 0, "Bring your AIs to one table", "Several AI models plan, build and check this project together, each in its own app. Roundtable only adds a hidden .roundtable folder; it never changes your files.");
+  const recentList = st.recent && st.recent.length ? h("section", { class: "section" }, h("h2", { text: "Recent projects" }),
+    h("ul", { class: "tasklist" }, st.recent.map(r => h("li", null, h("button", { type: "button", onclick: e => special("open", { folder: r.root }, { button: e.currentTarget, title: "Opened " + r.name }) },
+      icon("folder", "sm"), h("span", { class: "t" }, h("strong", { text: r.name }), h("span", { text: r.root }))))))) : null;
+  if (f.is_home) return h("div", { class: "welcome" }, art, h("main", { class: "welcome-main" }, h("div", { class: "stack" },
+    h("h2", { text: st.recent && st.recent.length ? "Open a project" : "Choose your project" }),
+    h("p", { class: "lead", text: "Pick the folder of the project your AIs should work on: usually a git repository with at least one commit. If it has no Roundtable yet, you can set one up there next." }),
+    h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: e => browseFolder(folderIn, e.currentTarget, folder => special("open", { folder }, { title: "Opened" })) },
+      icon("folder", "sm"), "Choose a folder…")),
+    h("details", { "data-k": "setup-type" }, h("summary", null, icon("chevron", "sm"), "Type the folder's path instead"),
+      h("div", { class: "row" }, h("div", { class: "grow" }, folderIn),
+        h("button", { type: "button", onclick: e => special("open", { folder: folderIn.value.trim() }, { button: e.currentTarget, title: "Opened" }) }, "Open"))),
+    recentList)));
   return h("div", { class: "welcome" }, art, h("main", { class: "welcome-main" }, h("div", { class: "stack" },
     h("h2", { text: "Set up Roundtable here" }),
     h("dl", { class: "kv" }, h("dt", { text: "Folder" }), h("dd", { class: "mono", text: f.folder })),
@@ -2218,9 +2230,7 @@ function setupScreen(st) {
         h("div", { class: "row" }, h("div", { class: "grow" }, folderIn),
           h("button", { type: "button", onclick: e => browseFolder(folderIn, e.currentTarget, f => special("open", { folder: f }, { title: "Opened" })) }, icon("folder", "sm"), "Browse…"),
           h("button", { type: "button", onclick: e => special("open", { folder: folderIn.value.trim() }, { button: e.currentTarget, title: "Opened" }) }, "Open")))),
-    st.recent && st.recent.length ? h("section", { class: "section" }, h("h2", { text: "Recent projects" }),
-      h("ul", { class: "tasklist" }, st.recent.map(r => h("li", null, h("button", { type: "button", onclick: e => special("open", { folder: r.root }, { button: e.currentTarget, title: "Opened " + r.name }) },
-        icon("folder", "sm"), h("span", { class: "t" }, h("strong", { text: r.name }), h("span", { text: r.root }))))))) : null)));
+    recentList)));
 }
 
 /* ---------------------------------------------------------------- boot */

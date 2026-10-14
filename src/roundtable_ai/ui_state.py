@@ -434,7 +434,9 @@ def setup_state(folder) -> dict[str, Any]:
     from .paths import recent_projects
 
     folder = Path(folder).expanduser().resolve()
-    info: dict[str, Any] = {"folder": str(folder), "exists": folder.is_dir(), "name": folder.name}
+    info: dict[str, Any] = {"folder": str(folder), "exists": folder.is_dir(), "name": folder.name,
+                            # the app opened from a menu starts in the home folder: offer to choose a project, not to set up here
+                            "is_home": folder == Path.home().resolve() or folder == Path(folder.anchor)}
     if folder.is_dir():
         g = project.detect_git(folder)
         info["git"] = bool(g.get("git"))

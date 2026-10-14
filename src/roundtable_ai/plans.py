@@ -317,7 +317,9 @@ def view(ctx, draft=None) -> Result:
                          "Cover the WHOLE goal: every part of it becomes a task, including parts meant for other seats. "
                          "A part the goal gives to a seat (e.g. 'sol: ...') is a task with that seat as owner: never drop it or take it yourself. "
                          "Use the file names the goal gives. Other work is spread across the builders: " + builders + ". "
-                         "Proof commands must run on this computer as they are (check what is installed, e.g. python3 vs python, pytest).")
+                         "Proof commands must run on this computer as they are (check what is installed, e.g. python3 vs python, pytest). "
+                         "Let the seats work at the same time: add depends_on only when a task really needs another's code "
+                         "(a seat writing tests from the spec, in its own files, does not need to wait for the code).")
         else:
             lines.append("you chair: merge the drafts and critiques -> rt_plan propose text=... tasks=[...]")
     if p["stage"] == "proposed" and not human and me != p["chair"]:

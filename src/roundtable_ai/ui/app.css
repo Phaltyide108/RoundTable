@@ -430,7 +430,7 @@ li.day { list-style: none; }
 .decide-block { padding: 16px; }
 .composer .box.off { justify-content: space-between; align-items: center; padding: 8px 8px 8px 16px; background: var(--sheet-2); }
 .composer .modes .lbl { font-weight: 700; font-size: 14.5px; margin-right: 6px; }
-.composer .modes .faint { margin-left: auto; }
+.composer .modes .checking { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
 .composer .send span { font-size: 14.5px; }
 
 /* the table */

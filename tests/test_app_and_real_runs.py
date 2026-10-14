@@ -214,3 +214,12 @@ def test_rt_app_install_from_cli(tmp_path, monkeypatch, capsys):
 
 def test_rt_error_is_importable():
     assert RTError
+
+
+def test_setup_screen_in_the_home_folder_offers_choosing_a_project(tmp_path, monkeypatch):
+    from roundtable_ai import ui_state
+
+    monkeypatch.setattr(window.Path, "home", classmethod(lambda cls: tmp_path))
+    assert ui_state.setup_state(tmp_path)["setup"]["is_home"] is True
+    (tmp_path / "proj").mkdir()
+    assert ui_state.setup_state(tmp_path / "proj")["setup"]["is_home"] is False
