@@ -216,6 +216,12 @@ def _test_command() -> str:
     return f"{_python()} -m unittest discover -s tests"
 
 
+def util_one_line(text, n: int = 200) -> str:
+    from . import util
+
+    return util.one_line(str(text or ""), n)
+
+
 def _brief(task: str) -> str:
     """What both the lone AI and the team are told; the full specification is TASK.md in their folder."""
     first = task_text(task).strip().splitlines()[0]
@@ -267,19 +273,26 @@ def run_solo(task: str, m: Member, folder: Path, minutes: float, log) -> dict[st
     timer = threading.Timer(minutes * 60, lambda: runner._kill(proc))
     timer.daemon = True
     timer.start()
+    limited = None
     with open(folder.parent / f"{folder.name}.stream.jsonl", "wb") as fh:
         assert proc.stdout is not None
         for raw in proc.stdout:
             fh.write(raw)
-            _items, facts = runner._parse_line(m.app, raw.decode("utf-8", errors="replace").strip(), str(folder))
-            tokens += int(facts.get("tokens") or 0)
+            items, facts = runner._parse_line(m.app, raw.decode("utf-8", errors="replace").strip(), str(folder))
+            tokens += int(facts.get("tokens") or facts.get("tokens_add") or 0)
+            for it in items:
+                if not limited and it.get("kind") in ("say", "error", "done") and runner.limit_until(it.get("text")):
+                    limited = util_one_line(it.get("text"))
     proc.wait()
     timer.cancel()
     seconds = time.time() - started
     if seconds >= minutes * 60:
         timed_out = True
-    log(f"  finished in {seconds / 60:.1f} min (exit {proc.returncode})")
-    return {"seconds": round(seconds, 1), "tokens": tokens, "exit": proc.returncode, "timed_out": timed_out}
+    log(f"  finished in {seconds / 60:.1f} min (exit {proc.returncode})" + (f"; hit its usage limit: {limited}" if limited else ""))
+    out = {"seconds": round(seconds, 1), "tokens": tokens, "exit": proc.returncode, "timed_out": timed_out}
+    if limited:
+        out["limited"] = {m.label: limited}
+    return out
 
 
 def _handle_for(m: Member, taken: set[str]) -> str:
@@ -329,8 +342,22 @@ def run_team(task: str, members: list[Member], folder: Path, minutes: float, mod
             runner.request_stop(home, h)
     seconds = time.time() - started
     tokens = sum(int(runner.read_state(home, h).get("tokens") or 0) for h in handles)
-    log(f"  plan {outcome} after {seconds / 60:.1f} min")
-    return {"seconds": round(seconds, 1), "tokens": tokens, "outcome": outcome, "timed_out": outcome == "timed out", "seats": handles}
+    limited = {h: runner.read_state(home, h).get("limit_text") or "out of usage" for h in handles
+               if runner.read_state(home, h).get("limited_until") or "limit" in str(runner.read_state(home, h).get("error") or "").lower()}
+    log(f"  plan {outcome} after {seconds / 60:.1f} min" + (f"; out of usage: {', '.join(limited)}" if limited else ""))
+    out: dict[str, Any] = {"seconds": round(seconds, 1), "tokens": tokens, "outcome": outcome, "timed_out": outcome == "timed out", "seats": handles}
+    if limited:
+        out["limited"] = limited
+    if outcome != "done":
+        # what the team had built but not merged yet, so a stopped run still shows how good the work was
+        unmerged = {}
+        for h in handles:
+            wt = folder.parent / f"{folder.name}.{h}"
+            if wt.is_dir():
+                sc = score(task, wt)
+                unmerged[h] = sc["passed"]
+        out["unmerged"] = unmerged
+    return out
 
 
 def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 40, mode: str = "quick", review: str = "mid",
@@ -366,6 +393,11 @@ def markdown(report: dict) -> str:
     for r in report["results"]:
         pct = 100 * r["passed"] / r["total"] if r["total"] else 0
         note = " (stopped at the time limit)" if r.get("timed_out") else (" (error)" if r.get("error") else "")
+        if r.get("limited"):
+            note += " (out of usage: " + ", ".join(r["limited"]) + ")"
+        if r.get("unmerged") and max(r["unmerged"].values(), default=0) > r["passed"]:
+            best = max(r["unmerged"], key=lambda k: r["unmerged"][k])
+            note += f"; unmerged work in {best}'s copy passes {r['unmerged'][best]}"
         lines.append(f"| {r['contender']} | {r['passed']} of {r['total']} ({pct:.0f}%){note} | {r['seconds'] / 60:.1f} | {r['tokens']:,} |")
     lines += ["", "Tokens are what the apps reported; plan limits are shared by AIs from the same company.", ""]
     for r in report["results"]:

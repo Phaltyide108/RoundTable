@@ -262,3 +262,88 @@ def test_who_makes_a_model():
 
 def test_rt_error_import():
     assert RTError
+
+
+# ---------------------------------------------------------------- out of usage: the others carry on
+
+def test_limit_messages_are_understood():
+    import time
+
+    now = time.mktime((2026, 10, 14, 19, 40, 0, 0, 0, -1))
+    hm = lambda t: time.strftime("%d %H:%M", time.localtime(t))  # noqa: E731
+    assert hm(runner.limit_until("You've hit your session limit · resets 9:20pm (Asia/Kolkata)", now)) == "14 21:20"
+    assert hm(runner.limit_until("Usage limit reached. Your limit will reset at 3am", now)) == "15 03:00"
+    assert hm(runner.limit_until("You've hit your usage limit. Try again in 2 hours 5 minutes.", now)) == "14 21:45"
+    assert hm(runner.limit_until("rate limit exceeded", now)) == "14 20:10"
+    assert runner.limit_until("the tests hit a limit of 3 retries", now) is None
+    assert runner.limit_until("", now) is None
+
+
+def test_an_ai_out_of_usage_hands_its_task_over_with_the_work(rt, fake_apps, monkeypatch):
+    from conftest import git
+
+    team(rt)
+    rt.human("plan.goal", goal="g", mode="quick", planners="opus")
+    rt.seat("opus", "plan.propose", text="t", tasks=[{"ref": "1", "title": "Greet", "files": ["greet_opus.py"], "proof": ["python -c 'pass'"], "owner": "opus"}])
+    rt.human("plan.lock")
+    rt.seat("opus", "sync")
+    rt.seat("opus", "task.claim", task="T1")
+    wt_opus = Path(rt.q("SELECT worktree FROM seats WHERE handle = 'opus'")[0]["worktree"])
+    (wt_opus / "greet_opus.py").write_text("def hello():\n    return 'opus'\n")
+    git(wt_opus, "add", "greet_opus.py")
+    git(wt_opus, "commit", "-q", "-m", "half of T1")
+    monkeypatch.setenv("FAKE_LIMIT", "opus")
+    runner.run_seat(rt.home, "opus", once=True)
+    st = runner.read_state(rt.home, "opus")
+    assert st["state"] == "stopped" and st["limited_until"] > 0 and "session limit" in st["limit_text"]
+    t = rt.q("SELECT status, owner FROM tasks WHERE id = 'T1'")[0]
+    assert t == {"status": "ready", "owner": None}
+    assert any(e["type"] == "task.handoff" for e in rt.q("SELECT type FROM events"))
+    ctx = rt.ctx()
+    try:
+        from roundtable_ai import seats
+
+        assert seats.limited_until(ctx, "opus") > 0
+        assert [r["handle"] for r in council.eligible(ctx)] == ["sol"]          # councils skip it until the reset
+    finally:
+        ctx.close()
+    rt.seat("sol", "sync")
+    reply = rt.seat("sol", "task.claim", task="T1").text
+    assert "take over from opus" in reply
+    wt_sol = Path(rt.q("SELECT worktree FROM seats WHERE handle = 'sol'")[0]["worktree"])
+    assert (wt_sol / "greet_opus.py").read_text() == "def hello():\n    return 'opus'\n"     # opus's work came along
+    # while limited, its runner waits instead of retrying
+    monkeypatch.delenv("FAKE_LIMIT")
+    before = len(calls_log(rt))
+    runner.run_seat(rt.home, "opus", once=True)
+    assert len(calls_log(rt)) == before and runner.read_state(rt.home, "opus")["limited_until"] > 0
+
+
+def test_reviews_of_an_ai_out_of_usage_go_to_another(rt):
+    rt.add_seat("opus", model="claude-opus-5-5", app="claude-code", worktree=True)
+    rt.add_seat("sol", model="gpt-6.1-sol", app="codex-cli", worktree=True)
+    rt.add_seat("oc", model="opencode/glm-5.3", app="opencode", worktree=True)
+    rt.human("plan.goal", goal="g", mode="quick", planners="opus")
+    rt.seat("opus", "plan.propose", text="t", tasks=[{"ref": "1", "title": "A", "files": ["a.py"], "proof": ["true"], "owner": "opus"}])
+    rt.human("plan.lock")
+    ctx = rt.ctx()
+    try:
+        with ctx.tx():
+            ctx.db.execute("UPDATE tasks SET status = 'in_review', review_round = 1 WHERE id = 'T1'")
+            ctx.db.execute("INSERT INTO reviews(id, task, reviewer, level, round, verdict, created_at) VALUES ('R9', 'T1', 'sol', 'mid', 1, 'pending', '2026-10-14T10:00:00Z')")
+            ctx.db.execute("INSERT INTO assignments(kind, seat, target, round, status, created_at) VALUES ('review', 'sol', 'T1', 1, 'open', '2026-10-14T10:00:00Z')")
+        from roundtable_ai import seats, tasks
+
+        with ctx.tx():
+            seats.set_limited(ctx, "sol", 9999999999)
+        moved, reviews = tasks.hand_over(ctx, "sol", "is out of usage until 21:20")
+    finally:
+        ctx.close()
+    assert moved == [] and reviews == ["T1->oc"]
+    open_ = rt.q("SELECT seat FROM assignments WHERE kind = 'review' AND status = 'open'")
+    assert open_ == [{"seat": "oc"}]
+
+
+def calls_log(rt):
+    path = rt.home / "fake-calls.log"
+    return path.read_text().splitlines() if path.exists() else []

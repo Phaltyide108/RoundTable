@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -127,12 +128,38 @@ def status(home: Path, seat: str) -> dict[str, Any]:
     if not st:
         return {"running": False}
     running = is_running(home, seat)
-    out = {k: st.get(k) for k in ("state", "since", "message", "runs", "last_run", "work", "started", "tokens", "error")}
+    out = {k: st.get(k) for k in ("state", "since", "message", "runs", "last_run", "work", "started", "tokens", "error", "limited_until")}
     out["running"] = running
     if not running and st.get("state") not in ("stopped", None):
         out["state"] = "stopped"
         out["message"] = st.get("message") or "the background runner is not running"
     return out
+
+
+# ---------------------------------------------------------------- out of usage
+
+LIMIT_WORDS = re.compile(r"(?:usage|session|rate|weekly|daily|5-hour|hourly)[ -]limit|hit your limit|limit (?:reached|exceeded)|out of (?:credits|usage)|quota (?:exceeded|reached)", re.I)
+
+
+def limit_until(text: str | None, now: float | None = None) -> float | None:
+    """When an app's "you've hit your limit" message says it resets (epoch seconds); None when it is not such a message.
+    Understands "resets 9:20pm", "try again at 21:20", "try again in 2 hours 5 minutes"; otherwise assumes 30 minutes."""
+    if not text or not LIMIT_WORDS.search(text):
+        return None
+    now = time.time() if now is None else now
+    m = re.search(r"(?:resets?|try again|available again)\s+(?:at\s+|after\s+)?(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?(?![\d%])", text, re.I)
+    if m and (m.group(2) or m.group(3)):
+        hour, minute = int(m.group(1)), int(m.group(2) or 0)
+        if m.group(3):
+            hour = hour % 12 + (12 if m.group(3).lower().startswith("p") else 0)
+        if hour < 24 and minute < 60:
+            lt = time.localtime(now)
+            target = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, hour, minute, 0, 0, 0, -1))
+            return target + 86400 if target <= now else target
+    for m in re.finditer(r"\bin\s+(?:(\d+)\s*(?:hours?|hrs?|h)\b)?\s*(?:and\s+)?(?:(\d+)\s*(?:minutes?|mins?|m)\b)?", text, re.I):
+        if m.group(1) or m.group(2):
+            return now + int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60
+    return now + 30 * 60
 
 
 # ---------------------------------------------------------------- what to do
@@ -422,6 +449,11 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
                     said = [i["text"] for i in items if i.get("kind") in ("say", "done") and i.get("text")]
                     if said:
                         facts["last_say"] = said[-1]
+                    for i in items:
+                        if i.get("kind") in ("say", "done", "error") and not facts.get("limit_until"):
+                            facts["limit_until"] = limit_until(i.get("text"))
+                            if facts["limit_until"]:
+                                facts["limit_text"] = util.one_line(i.get("text") or "", 200)
                 if should_stop():
                     _kill(proc)
                     facts["stopped"] = True
@@ -437,6 +469,8 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
     if proc.returncode not in (0, None) and not facts.get("stopped"):
         tail = _log_tail(log)
         facts["error_text"] = tail
+        if not facts.get("limit_until") and limit_until(tail):
+            facts["limit_until"], facts["limit_text"] = limit_until(tail), util.one_line(tail, 200)
         if facts["lines"] == 0:
             activity.append(ctx.home, handle, [{"kind": "error", "text": "the app did not start: " + (tail or f"exit {proc.returncode}")}])
     state.pop("child", None)
@@ -479,6 +513,8 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
     state: dict[str, Any] = {"pid": os.getpid(), "state": "waiting", "since": time.time(), "started": time.time(),
                              "heartbeat": time.time(), "runs": 0, "session": prev.get("session"), "resume_ok": prev.get("resume_ok", True),
                              "seen_note": prev.get("seen_note") or "", "tokens": prev.get("tokens") or 0, "message": "waiting for work"}
+    if float(prev.get("limited_until") or 0) > time.time():      # still out of usage from an earlier run
+        state["limited_until"], state["limit_text"] = prev["limited_until"], prev.get("limit_text") or ""
     stop = threading.Event()
 
     def beat():
@@ -514,6 +550,21 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
                 if row is None or row["status"] == "removed":
                     state.update(state="stopped", message="the seat was removed")
                     break
+                limited = float(state.get("limited_until") or 0)
+                if limited and time.time() < limited:
+                    _set(state, "limited", f"out of usage until {_hm(limited)}" + (f" ({state.get('limit_text')})" if state.get("limit_text") else ""))
+                    if once:
+                        break
+                    time.sleep(POLL_SECONDS)
+                    continue
+                if limited:
+                    from . import seats as seats_mod
+
+                    with ctx.tx():
+                        seats_mod.set_limited(ctx, handle, None)
+                    state.pop("limited_until", None)
+                    state.pop("limit_text", None)
+                    backoff, last_sig = 0, ""
                 if ctx.db.meta_get("frozen", "0") == "1" or row["status"] == "paused":
                     _set(state, "paused", "paused: " + ("you paused everyone" if row["status"] != "paused" else "you paused this AI"))
                     work = []
@@ -549,6 +600,23 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
                 state["resume_ok"] = True if facts.get("lines") else state.get("resume_ok", True)
                 state["seen_note"] = note_mark
                 _save_usage(home_path, handle, row, facts)
+                if facts.get("limit_until"):
+                    # the app is out of its plan's usage: wait for the reset, and let the others carry on with its work
+                    from . import seats as seats_mod
+                    from . import tasks as tasks_mod
+
+                    until = float(facts["limit_until"])
+                    state["limited_until"], state["limit_text"] = until, facts.get("limit_text") or ""
+                    with ctx.tx():
+                        seats_mod.set_limited(ctx, handle, until)
+                    moved, reviews = tasks_mod.hand_over(ctx, handle, f"is out of usage until {_hm(until)}")
+                    extra = (f"; {', '.join(moved)} handed to the others" if moved else "") + (f"; {len(reviews)} review(s) handed over" if reviews else "")
+                    _set(state, "limited", f"out of usage until {_hm(until)}{extra}")
+                    state["error"] = facts.get("limit_text") or "out of usage"
+                    backoff, last_sig = 0, ""
+                    if max_runs and state["runs"] >= max_runs or once:
+                        break
+                    continue
                 after = pending(ctx, handle, state["seen_note"])
                 changed = hashlib.sha1("|".join(sorted(k for k, _t in after)).encode()).hexdigest() != sig
                 acted = _seat_events(ctx, handle) > before
@@ -605,6 +673,10 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
         except OSError:
             pass
     return code
+
+
+def _hm(epoch: float) -> str:
+    return time.strftime("%H:%M", time.localtime(epoch))
 
 
 def _set(state: dict, name: str, message: str) -> None:
@@ -667,7 +739,7 @@ def start_detached(home: Path, handle: str) -> int:
     with open(log, "ab") as fh:
         p = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, env=env, **kwargs)
     write_state(home, handle, {"pid": p.pid, "state": "starting", "since": time.time(), "heartbeat": time.time(),
-                               "message": "starting", **{k: v for k, v in read_state(home, handle).items() if k in ("session", "resume_ok", "seen_note", "tokens")}})
+                               "message": "starting", **{k: v for k, v in read_state(home, handle).items() if k in ("session", "resume_ok", "seen_note", "tokens", "limited_until", "limit_text")}})
     return p.pid
 
 

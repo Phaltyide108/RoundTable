@@ -215,9 +215,29 @@ def switch_to_task(ctx, seat_row, task_row, *, create: bool) -> str:
         return task_row["base_commit"] or ok(ctx.root, "merge-base", main_branch(ctx), branch).strip()
     if not create:
         raise RTError(GIT, f"branch {branch} is missing", "the human can cancel and recreate the task")
+    prior = earlier_task_branch(ctx, task_row["id"], seat_row["handle"])
+    if prior:
+        # handed over from another seat (it ran out of usage, or was paused): continue from its work
+        ok(wt, "switch", "-c", branch, prior, what=f"creating branch {branch} from {prior}")
+        return task_row["base_commit"] or ok(ctx.root, "merge-base", main_branch(ctx), prior).strip()
     base = head_of_branch(ctx.root, main_branch(ctx))
     ok(wt, "switch", "-c", branch, base, what=f"creating branch {branch}")
     return base
+
+
+def earlier_task_branch(ctx, task_id: str, seat: str) -> str | None:
+    """Another seat's branch for this task with commits beyond the main branch, newest first; None when there is none."""
+    res = run(ctx.root, "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", f"refs/heads/rt/*/{task_id}")
+    if res.returncode != 0:
+        return None
+    main = main_branch(ctx)
+    for name in res.stdout.split():
+        if name == task_branch(seat, task_id):
+            continue
+        ahead = run(ctx.root, "rev-list", "--count", f"{main}..{name}")
+        if ahead.returncode == 0 and ahead.stdout.strip() not in ("", "0"):
+            return name
+    return None
 
 
 def head_of_branch(cwd: Path | str, branch: str) -> str:

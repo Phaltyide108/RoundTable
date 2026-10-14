@@ -60,7 +60,8 @@ def choose_reviewers(ctx, task_row, n: int, exclude: list[str] | None = None) ->
     owner_company = owner_row["company"] if owner_row else None
     load = {r["seat"]: r["n"] for r in ctx.db.all(
         "SELECT seat, COUNT(*) AS n FROM assignments WHERE status = 'open' GROUP BY seat")}
-    cands = [r for r in seats.active(ctx, "review") if r["handle"] != owner and r["handle"] not in exclude]
+    cands = [r for r in seats.active(ctx, "review") if r["handle"] != owner and r["handle"] not in exclude
+             and not seats.limited_until(ctx, r["handle"])]
     cands.sort(key=lambda r: (r["company"] == owner_company, load.get(r["handle"], 0), r["handle"]))
     chosen = [r["handle"] for r in cands[:n]]
     if len(chosen) < n and HUMAN not in exclude:

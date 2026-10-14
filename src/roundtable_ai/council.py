@@ -50,7 +50,10 @@ FINAL = ("done", "failed", "cancelled")
 
 def eligible(ctx) -> list:
     """Active seats whose app Roundtable can run by itself, in the order they joined."""
-    return [r for r in ctx.db.all("SELECT * FROM seats WHERE status = 'active' ORDER BY created_at, handle") if r["app"] in RUNNABLE]
+    from .seats import limited_until
+
+    return [r for r in ctx.db.all("SELECT * FROM seats WHERE status = 'active' ORDER BY created_at, handle")
+            if r["app"] in RUNNABLE and not limited_until(ctx, r["handle"])]
 
 
 def _get(ctx, cid: str):

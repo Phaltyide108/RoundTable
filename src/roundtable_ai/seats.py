@@ -217,6 +217,21 @@ def list_seats(ctx) -> Result:
     return Result("\n".join(lines), {"seats": data})
 
 
+def limited_until(ctx, handle: str) -> float:
+    """When this seat's app said its plan's usage limit resets (epoch seconds), or 0."""
+    import time
+
+    try:
+        until = float(ctx.db.meta_get(f"limited:{handle}") or 0)
+    except ValueError:
+        return 0.0
+    return until if until > time.time() else 0.0
+
+
+def set_limited(ctx, handle: str, until: float | None) -> None:
+    ctx.db.meta_set(f"limited:{handle}", str(until or 0))
+
+
 def _return_tasks(ctx, handle: str, why: str) -> list[str]:
     """Hand back a seat's in-progress tasks and release its leases."""
     moved = []

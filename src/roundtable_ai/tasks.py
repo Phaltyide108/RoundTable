@@ -315,6 +315,49 @@ def _may_claim(ctx, seat: str, t) -> None:
             raise RTError(FORBIDDEN, f"{t['id']} belongs to {t['owner']} in the plan", "pick one of yours or an unowned one: rt_task ready")
 
 
+def hand_over(ctx, seat: str, why: str) -> tuple[list[str], list[str]]:
+    """A seat can't work for a while (its app is out of usage): give its unfinished tasks and its open reviews
+    to the others. Tasks go back to ready with no owner (the next builder's branch starts from this seat's work);
+    reviews go to another reviewer, or to the human. Returns (tasks, reviews) handed over. Nothing moves when
+    nobody else could take it."""
+    from . import leases, reviews, seats
+
+    others = [r for r in seats.active(ctx, "build") if r["handle"] != seat and not seats.limited_until(ctx, r["handle"])]
+    moved_tasks: list[str] = []
+    moved_reviews: list[str] = []
+    with ctx.tx():
+        if others:
+            for t in ctx.db.all("SELECT * FROM tasks WHERE owner = ? AND status IN ('claimed','changes_requested')", (seat,)):
+                ctx.db.execute("UPDATE tasks SET status = 'ready', owner = NULL, updated_at = ? WHERE id = ?", (util.now(), t["id"]))
+                leases.release_task(ctx, t["id"])
+                moved_tasks.append(t["id"])
+        for a in ctx.db.all("SELECT * FROM assignments WHERE kind = 'review' AND seat = ? AND status = 'open'", (seat,)):
+            t = ctx.db.one("SELECT * FROM tasks WHERE id = ?", (a["target"],))
+            if t is None:
+                continue
+            current = [r["seat"] for r in ctx.db.all("SELECT seat FROM assignments WHERE kind = 'review' AND target = ? AND status = 'open'", (t["id"],))]
+            pick = reviews.choose_reviewers(ctx, t, len(current) + 1, exclude=current)
+            if not pick:
+                continue
+            who = pick[0]
+            ctx.db.execute("UPDATE assignments SET status = 'cancelled', done_at = ? WHERE id = ?", (util.now(), a["id"]))
+            ctx.db.execute("UPDATE reviews SET verdict = 'cancelled' WHERE task = ? AND reviewer = ? AND round = ? AND verdict = 'pending'", (t["id"], seat, a["round"]))
+            ctx.db.execute("INSERT INTO reviews(id, task, reviewer, level, round, verdict, created_at) VALUES (?,?,?,?,?, 'pending', ?)",
+                           (util.next_id(ctx.db, "review", "R"), t["id"], who, reviews.effective_level(ctx, t), a["round"], util.now()))
+            ctx.db.execute("INSERT INTO assignments(kind, seat, target, round, status, created_at) VALUES ('review', ?, ?, ?, 'open', ?)",
+                           (who, t["id"], a["round"], util.now()))
+            moved_reviews.append(f"{t['id']}->{who}")
+        if moved_tasks or moved_reviews:
+            parts = []
+            if moved_tasks:
+                parts.append(f"{', '.join(moved_tasks)} go to whoever is free, continuing from its work")
+            if moved_reviews:
+                parts.append("its reviews go to " + ", ".join(m.split("->")[1] for m in moved_reviews))
+            events.emit(ctx, "task.handoff", f"{seat} {why}: " + "; ".join(parts), ref=seat,
+                        audience=[r["handle"] for r in others] or None, data={"tasks": moved_tasks, "reviews": moved_reviews})
+    return moved_tasks, moved_reviews
+
+
 @op("task.ready", tool="rt_task", action="ready", desc="Tasks you can claim, and your current ones")
 def ready(ctx) -> Result:
     seat = ctx.actor
@@ -394,6 +437,14 @@ def claim(ctx, task) -> Result:
         lines.append(f"summary: {t['summary']}")
     if t["status"] == "changes_requested":
         lines.append(f"open review comments: rt_review get task=\"{t['id']}\"")
+    prior = gitops.earlier_task_branch(ctx, t["id"], seat) if use_git and prev_status not in WORKING else None
+    if prior:
+        lines.append(f"you take over from {prior.split('/')[1]}: your branch starts from its work ({prior}); read its checkpoints with rt_task show")
+    if t["review_round"] and t["status"] != "changes_requested":
+        last = ctx.db.one("SELECT reviewer, points FROM reviews WHERE task = ? AND verdict = 'changes' ORDER BY round DESC, created_at DESC LIMIT 1", (t["id"],))
+        if last:
+            pts = [p if isinstance(p, str) else p.get("text", "") for p in util.jload(last["points"], [])]
+            lines.append(f"the last review ({last['reviewer']}) asked for changes; make them: " + util.one_line(" | ".join(pts), 900))
     deps = deps_of(ctx, t["id"])
     if deps:
         lines.append(f"builds on: {', '.join(deps)}")

@@ -252,6 +252,16 @@ def main() -> int:
     if os.environ.get("FAKE_AGENT_FAIL") == me:
         sys.stderr.write("fake failure: not signed in\n")
         return 1
+    if os.environ.get("FAKE_LIMIT") == me:      # what Claude Code printed when its plan ran out (October 2026)
+        out = Out(args["app"])
+        out.start("sess-limited")
+        msg = "You've hit your session limit · resets 9:20pm (Asia/Kolkata)"
+        if args["app"] == "claude":
+            out.emit({"type": "assistant", "message": {"content": [{"type": "text", "text": msg}]}})
+            out.emit({"type": "result", "subtype": "success", "is_error": True, "result": msg, "session_id": "sess-limited"})
+        else:
+            out.emit({"type": "error", "message": msg})
+        return 1
     out = Out(args["app"])
     session = args.get("resume") or f"sess-{me}-1"
     out.start(session)

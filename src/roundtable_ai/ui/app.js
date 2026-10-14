@@ -464,6 +464,7 @@ function seatPhrase(x) {
   if (x.status === "paused") return "Paused";
   if (running(x)) {
     if (x.runner.state === "stuck") return "Stuck: retrying soon";
+    if (x.runner.state === "limited") return "Out of usage until " + hm(x.runner.limited_until);
     if (x.runner.state === "paused") return "Paused with everyone";
     if (x.runner.state !== "working") return "Waiting for work";
   }
@@ -482,6 +483,8 @@ function seatPhrase(x) {
   if (x.active || x.live) return x.doing ? capital(plainText(x.doing)) : "Ready for work";
   return "Not running · seen " + (/^\d+s\b/.test(x.seen) ? "just now" : x.seen);
 }
+
+function hm(epoch) { return epoch ? new Date(Number(epoch) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "later"; }
 
 function needsStart(x) { return x.status === "active" && !x.joined_ever && !running(x); }
 function idleSeat(x) { return x.status === "active" && !running(x) && !(x.active || x.live); }
@@ -675,6 +678,7 @@ function say(e) {
     case "council.asked": return { council: rest(t, /^(Q\d+)/), actor: "human", text: "Asked the table: " + (rest(t, /^Q\d+: (.*?) · asked/) || t) };
     case "council.rescue": return { council: rest(t, /\((Q\d+)\)\s*$/), actor: "system", text: plainText(t) };
     case "council.ranking": case "council.combining": case "council.done": case "council.failed": case "council.cancelled": return null;
+    case "task.handoff": return { marker: plainText(t.replace(/^(\S+) is out of usage until (\S+): /, "$1 is out of usage until $2, so ")), icon: "swap" };
     case "suggestion.sent": return { text: plainText(t), tone: "quiet" };
     case "suggestion.replied": return { text: plainText(t), tone: "quiet" };
     default: {
@@ -902,6 +906,10 @@ function buildAsks() {
         : { label: "Add to the work…", primary: true, go: "task/" + t.id },
       { label: "Not now", run: b => act("task.cancel", { task: t.id, reason: "not needed (decided by the human)" }, { button: b, title: "Set aside " + t.id }) }] });
   });
+  S.seats.filter(x => running(x) && x.runner.state === "limited").forEach(x => asks.push({ key: "limited-" + x.handle, tone: "info", who: x.handle,
+    title: `${x.handle} is out of usage until ${hm(x.runner.limited_until)}`,
+    body: `Its ${appWord(x.app)} plan reached its limit. Its unfinished work went to the others, who continue from where it stopped; it comes back by itself at ${hm(x.runner.limited_until)}.`,
+    actions: [{ label: "See what it did", go: "ai/" + x.handle }] }));
   S.seats.filter(x => running(x) && x.runner.state === "stuck").forEach(x => asks.push({ key: "stuck-" + x.handle, tone: "", who: x.handle,
     title: `${x.handle} is stuck`, body: plainText(x.runner.error || x.runner.message || ""),
     actions: [{ label: "Try again now", primary: true, run: async b => { busy(b, true); await post("/api/do", { kind: "stop", handle: x.handle }); await special("run", { handle: x.handle }, { button: b, title: "Trying again" }); } },
@@ -1635,14 +1643,14 @@ PAGES.ai = st => {
 function runnerSection(x) {
   const r = x.runner || {};
   const on = running(x);
-  const state = !on ? "Not running in the background" : { working: "Working now", waiting: "Waiting for work", stuck: "Stuck", paused: "Paused", starting: "Starting" }[r.state] || "Running";
+  const state = !on ? "Not running in the background" : { working: "Working now", waiting: "Waiting for work", stuck: "Stuck", paused: "Paused", starting: "Starting", limited: "Out of usage" }[r.state] || "Running";
   const everything = (S.config.find(c => c.key === "runner.permissions") || {}).value === "all";
   return h("section", { class: "section runner" + (on ? " on" : "") },
     h("div", { class: "spread" }, h("h2", { text: "Run it in the background" }), h("span", { class: "pill " + (on ? (r.state === "stuck" ? "you" : r.state === "working" ? "work" : "ok") : ""), text: state })),
     h("p", { class: "muted", text: on
       ? "Roundtable starts " + x.handle + " by itself whenever it has work, with your own login, and puts it back to sleep when it is done. You don't need a terminal open."
       : "Let Roundtable start " + x.handle + " by itself whenever it has work, with your own " + appWord(x.app) + (x.app === "opencode" ? " setup (free models need no login)" : " login") + ". Nothing gets stuck waiting for you to nudge it." }),
-    on && r.message ? h("p", { class: r.state === "stuck" ? "box warn" : "faint", text: capital(plainText(r.message)) + (r.runs ? ` · ${plural(r.runs, "run")} so far` : "") }) : null,
+    on && r.message ? h("p", { class: r.state === "stuck" || r.state === "limited" ? "box warn" : "faint", text: capital(plainText(r.message)) + (r.runs ? ` · ${plural(r.runs, "run")} so far` : "") }) : null,
     !on && r.error ? h("p", { class: "box warn", text: "Last time: " + plainText(r.error) }) : null,
     h("div", { class: "row" }, on
       ? h("button", { type: "button", onclick: e => special("stop", { handle: x.handle }, { button: e.currentTarget, title: x.handle + " stopped" }) }, icon("pause", "sm"), "Stop running in the background")
