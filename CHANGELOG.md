@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- **A dashboard for people who have never used it.** Five sections in plain words: Home, Inbox, Team, Plan and Work, with Usage, Notes, History, Settings and Help under More (a bottom tab bar on phones).
-  - **Home** says what is happening, gives one next step with one button, and shows the journey: Add AI models, Start them, Give a goal, They plan, Approve the plan, They build.
-  - **Inbox** gathers every decision: approving the plan, checking changes, work the AIs found, problems and votes.
-  - **Work** is a board: To do / In progress / Checking / Done.
-  - **Adding an AI** is a two-step picker (app tiles for terminal, editor and desktop app; name and model filled in; advanced options hidden).
-  - Every page has a **?** that explains it. Wording is plain throughout: "Approve the plan", "tests", "Light / Standard / Thorough checking", "Work your AIs found".
-  - Old dashboard links still work.
+- **The dashboard is now a room.** One screen instead of sections:
+  - The middle is a conversation. Everything the AIs do arrives as a message from the AI that did it, in its maker's colour, in plain words ("Started T2", "T2 passed its tests", "Asked for changes in T3").
+  - Whatever needs you is pinned above the message box with the buttons that settle it: approve the plan, check changes, add or set aside work the AIs found, problems, tied votes, and a Start button for each AI that isn't running yet.
+  - The message box gives the goal (with Light / Standard / Thorough checking) and, once there is a plan, sends notes, problems and tasks. Enter sends.
+  - The team sits around a drawn table on the left, lit while each app is open; the plan's steps, then every task, are on the right.
+  - Everything else (a task with its tests and diff, an AI with its usage, settings, help) opens as a panel over the room and closes with Esc.
+  - First visit is three steps: choose your AIs (tick several apps at once; names and models filled in), start them, give them a goal.
+  - Bundled Atkinson Hyperlegible Next for legibility; light and dark; works on phones. Old dashboard links still work.
 
 ## 0.2.0 (2026-10-13)
 

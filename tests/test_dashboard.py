@@ -197,7 +197,7 @@ def test_dashboard_speaks_plainly_and_links_to_real_pages(rt, fake_home):
         st = ui_state.build(ctx)
     finally:
         ctx.close()
-    pages = {"home", "inbox", "team", "plan", "work", "usage", "notes", "history", "settings", "help", "more", "switch"}
+    pages = {"room", "welcome", "plan", "task", "review", "ai", "add", "team", "alerts", "found", "usage", "notes", "history", "settings", "help", "switch"}
     gos = [a["go"] for n in st["needs"] for a in n["actions"] if a.get("go")]
     assert gos and all(g.split("/")[0] in pages for g in gos), gos
     words = " ".join([*ui_state.STATUS_LABEL.values(), *ui_state.STAGE_LABEL.values(), *(n["title"] for n in st["needs"])]).lower()

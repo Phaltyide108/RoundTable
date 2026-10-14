@@ -69,10 +69,10 @@ Terminal alternative: `rt goal "<the text above>" --review mid`.
 
 ## 5. Watch and decide
 
-- **Home** shows your next step, and the table: who is writing, commenting, working or checking.
-- When the plan is ready, **Home** and the **Inbox** say so. Read the tasks and the test commands, tick the box, **Approve the plan** (terminal: `rt plan view`, `rt plan lock`).
+- The room's conversation shows each step as it happens, and the table on the left shows who is writing, commenting, working or checking.
+- When the plan is ready, it is pinned above the message box. Read the tasks and the test commands, tick the box, **Approve the plan** (terminal: `rt plan view`, `rt plan lock`).
 - Then each model claims a task, works in its own folder, and closes it. Roundtable runs the tests; the other model reviews; the task merges into `main`.
-- If a model files a bug it found, it appears in the **Inbox** under *Work your AIs found*: accept it or say it is not needed.
+- If a model files a bug it found, it is pinned above the message box: **Add to the work** or **Not now**.
 
 ## 6. Keep them moving
 

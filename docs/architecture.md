@@ -155,6 +155,7 @@ backlog ─(you accept)─> open ─(dependencies done)─> ready ─(claim)─>
 - The page (`ui/index.html`, `app.css`, `app.js`) has no framework and no build step. Every three seconds it asks `/api/state` for the whole picture (built by `ui_state.py` with plain queries, no git commands) and redraws, keeping what you were typing.
 - Buttons call `/api/action` with a Roundtable operation, which runs through the same `dispatch.call` as the terminal, acting as you. Setting up, opening another project, starting a model and connecting an app go through `/api/do`.
 - **Safety:** it listens only on 127.0.0.1; it checks the `Host` header (so a malicious website cannot reach it by DNS tricks); every change needs a random token embedded in the page and a same-origin request; a strict content security policy blocks injected scripts; all text is inserted as text, never as HTML; models can never call the dashboard.
+- The screen is one room: the event log rendered as a conversation in the middle (each event type turned into one plain sentence), the decisions waiting for you pinned above the message box, the team on the left and the plan on the right. Every other view is a panel over the room addressed by the URL (`#/task/T3`, `#/ai/opus`), so links and the back button work.
 - Without a project in the current folder it shows the set-up screen, and it can switch between projects without restarting.
 
 ## 8. Time: who wakes whom
@@ -202,4 +203,4 @@ Being honest about the limits:
 
 ## 11. How it is tested
 
-93 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, and the MCP protocol with the official client libraries. The first real run, with Claude Code (Claude Opus 5.5) and Codex (GPT-6.1 Sol), went through blind drafts, critique, merge and approval as designed.
+94 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, and the MCP protocol with the official client libraries. The first real run, with Claude Code (Claude Opus 5.5) and Codex (GPT-6.1 Sol), went through blind drafts, critique, merge and approval as designed.

@@ -65,14 +65,14 @@ In your project's main folder (a git repository with at least one commit):
 rt ui
 ```
 
-Your browser opens the dashboard. **Home** always shows the one thing to do next, with a single button, and a line of steps from "Add AI models" to "They build":
+Your browser opens the dashboard. The first visit is three steps:
 
 1. **Set up Roundtable in this folder** (it only adds a hidden `.roundtable` folder).
-2. **Team → Add an AI model**, two or more, ideally from different companies. Pick the app it runs in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps); the name and model are filled in for you.
-3. **Start** each one. Terminal apps open in a new terminal window in the AI's own copy of the project, already connected. Editors open the right folder, and the page shows the one message to send.
-4. **Plan**: write the goal and choose how carefully they check each other (Light, Standard or Thorough).
-5. When the AIs agree, the plan lands in your **Inbox**. Read the tasks and the test commands they will run, tick the box, **Approve the plan**.
-6. Watch the **Work** board move from To do to Done. Every decision (changes to check, work the AIs found, problems, votes) arrives in the Inbox. Each page has a **?** that explains it; **More → Help** lists the terminal command for every button.
+2. **Choose your AIs**: tick the apps they run in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps). Names and models are filled in for you. Two from different companies catch each other's mistakes.
+3. **Start them.** Terminal apps open in a new terminal window in the AI's own copy of the project, already connected. Editors open the right folder, and the page shows the one message to send.
+4. **Give them a goal** and choose how carefully they check each other (Light, Standard or Thorough).
+
+Then you are in **the room**. Everything the AIs do arrives in the middle as a conversation. Whatever needs you (approving the plan, changes to check, work the AIs found, problems, tied votes, an AI that isn't started) is pinned just above the message box with the buttons that settle it; when nothing is pinned, you have nothing to do. The team sits around the table on the left, the plan and every task are on the right, and anything else (an AI's usage, a task's tests and diff, settings, help) opens as a panel over the room and closes with Esc. **Help** lists the terminal command for every button.
 
 ## Quickstart: the terminal
 
@@ -106,7 +106,7 @@ Plain `rt` tells you the next step; `rt --help` groups the commands by purpose.
 | Cursor | `cursor` | Start opens the folder in Cursor | yes (per-seat `.cursor/mcp.json`) |
 | Claude desktop app | `claude-app` | `rt setup claude-app` once, new chat | send "join Roundtable as …"; plans and reviews only |
 | ChatGPT desktop app, Codex mode | `codex-app` | `rt setup codex` once, open the folder | send "join Roundtable as …" |
-| Anything else with MCP | `other` | add the server by hand (the Team page shows what to enter) | send "join Roundtable as …" |
+| Anything else with MCP | `other` | add the server by hand (the AI's panel shows what to enter) | send "join Roundtable as …" |
 
 Per-seat settings files are written into that model's working copy and hidden from git (`.git/info/exclude`), so they never show up as changes. Claude Code and Codex are verified end to end; the other apps' settings formats follow their current documentation.
 
