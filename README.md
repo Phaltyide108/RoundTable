@@ -89,14 +89,26 @@ The same council works by itself when building: a task that fails its tests twic
 
 ## Does a team do better than one AI?
 
-`rt bench run` finds out on your own computer. It gives the same task (a written specification of a small spreadsheet engine: formulas, functions, errors, cycles, performance) to each AI alone and to the team, then runs 52 hidden tests none of them saw against what each one built, and writes a report: tests passed, minutes and tokens.
+`rt bench run` finds out on your own computer. It gives the same written specification to each AI alone and to the team, then runs hidden tests none of them saw against what each one built, and writes a report: tests passed, minutes and tokens. Two tasks:
+
+- `sheet`: a small spreadsheet engine (formulas, functions, errors, cycles), 52 hidden tests;
+- `sql`: a small SQL engine that must answer exactly like SQLite (NULL logic, integer division, type affinity, ordering, GROUP BY, joins), 111 hidden tests that compare it with real SQLite.
 
 ```bash
-rt bench run                                   # Claude alone, Codex alone, then both as a team (about 40 min each at most)
+rt bench run --task sql                        # Claude alone, Codex alone, then both as a team (45 min each at most)
 rt bench run --solo claude:high --team claude:high,codex:xhigh --mode full
 ```
 
-It uses your real Claude Code and Codex limits, one contender at a time. Each contender's work is kept next to the report, and `rt bench score FOLDER` scores any folder against the hidden tests.
+It uses your real Claude Code and Codex limits. Each contender's work is kept next to the report, and `rt bench score FOLDER --task sql` scores any folder against the hidden tests.
+
+**What we measured (October 2026, Linux, default thinking):**
+
+| Task | Claude Opus 5.5 alone | GPT-6.1 Sol alone | Team (both) |
+| --- | --- | --- | --- |
+| sheet (52 tests) | 52/52 in 6.5 min | 52/52 in 20.7 min | stopped: Claude's 5-hour limit ran out mid-run; the unmerged work passed 52/52 |
+| sql (111 tests) | 111/111 | 111/111 in 19 min | see [docs/benchmarks.md](docs/benchmarks.md) |
+
+The honest reading: on a clear specification of this size, today's top models each get everything right alone, so a team cannot be *more* accurate here; it costs more time and tokens, because the other model reviews the work. The first team run did find what a team is good for: when one AI ran out of its plan's usage, its work could pass to the other (which Roundtable now does by itself, keeping the work done so far), and the reviewer found real issues the hidden tests didn't cover. Where teams should help most is where a single model makes mistakes: smaller models, vaguer goals, bigger codebases. [docs/benchmarks.md](docs/benchmarks.md) has every run and its details.
 
 ## Quickstart: the terminal
 
@@ -274,6 +286,7 @@ Roundtable runs LLM Council's method (independent answers, anonymous ranking, a 
 - [MCP tools reference](docs/mcp-tools.md), for writing prompts
 - [Edge cases](docs/edge-cases.md)
 - [Architecture](docs/architecture.md), for contributors
+- [Benchmarks](docs/benchmarks.md): every `rt bench` run, its numbers and what we learned
 - [First real run](docs/first-real-run.md): Claude and GPT build two features of Roundtable itself, step by step
 - [Comparison with LLM Council, Beads, Gas Town and MCP Agent Mail](docs/comparison.md): what we lack, what we add
 
