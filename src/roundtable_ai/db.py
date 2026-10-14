@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import BUSY, NOT_INITIALIZED, VERSION, RTError
-from .schema import MIGRATION_1_TO_2, SCHEMA_V1, SCHEMA_VERSION
+from .schema import MIGRATION_1_TO_2, MIGRATION_2_TO_3, SCHEMA_V1, SCHEMA_VERSION
 
 BUSY_TIMEOUT_MS = 10_000
 
 # Forward-only migrations: {from_version: sql_script}. Version 1 is the base.
-MIGRATIONS: dict[int, str] = {1: MIGRATION_1_TO_2}
+MIGRATIONS: dict[int, str] = {1: MIGRATION_1_TO_2, 2: MIGRATION_2_TO_3}
 
 # Extra CREATE TABLE IF NOT EXISTS statements registered by modules
 # (applied on every open; must be idempotent).
@@ -118,7 +118,12 @@ class Store:
                     script = MIGRATIONS.get(v)
                     if script:
                         for stmt in _split_sql(script):
-                            self.conn.execute(stmt)
+                            try:
+                                self.conn.execute(stmt)
+                            except sqlite3.OperationalError as exc:
+                                # a column added by hand or by a half-finished upgrade: the step is already done
+                                if "duplicate column name" not in str(exc).lower():
+                                    raise
                 self.conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
         # Tables added within the current schema version (CREATE ... IF NOT EXISTS) are
         # applied once per change, detected by a hash, so ordinary opens take no write lock.

@@ -160,7 +160,11 @@ backlog ─(you accept)─> open ─(dependencies done)─> ready ─(claim)─>
 
 ## 8. Time: who wakes whom
 
-Models only act when their app sends them a message. Roundtable cannot type into a chat window. So:
+Models only act when their app sends them a message. Roundtable cannot type into a chat window, but it can start Claude Code and Codex itself:
+
+- **Background runs** (`runner.py`, `rt run <seat>`, or **Run in the background** in the dashboard): one small process per seat checks the table every few seconds. When the seat has work (`runner.pending`: a draft, critique, merge or approval it owes, an unacknowledged alert, a review, its own task to finish or fix, a ready task it can claim, or a new note from you) it runs the app headless: `claude -p "<what to do>" --output-format stream-json --verbose --model ... --effort ... --resume <session> --permission-mode acceptEdits --allowedTools ...`, or `codex exec --json -m ... -c model_reasoning_effort=... -c sandbox_mode="workspace-write" [resume <thread>] "<what to do>"` (flags checked against Claude Code 2.1.299 and Codex CLI 0.162). It reads the event stream line by line (`activity.py` turns thinking, tool calls, commands, edits and errors into short steps for the dashboard), keeps the session id so the next run continues the same conversation, and writes a heartbeat to `.roundtable/runs/<seat>.json`.
+- A run that leaves the table unchanged is not repeated at once: the wait doubles from 1 to 30 minutes and the seat is shown as stuck with the app's own error. Runs are stopped after `runner.max_minutes`; nothing runs while you have paused everyone or that seat; one runner per seat; environment variables of a Claude Code session that `rt ui` may have been started from are not passed on.
+- For seats you opened yourself, `activity.py` reads Claude Code's transcript and Codex's session log for that seat's folder, so the dashboard shows their steps too.
 
 - Every reply carries the inbox line, so active models notice new work on their next call.
 - `rt watch` (optional) runs in the background: it expires leases, cleans up dead test runs, retries waiting merges, refreshes `STATUS.md`, and sends you a desktop notification once per thing that needs you (a plan to lock, an alert at level 4 or 5, a tied vote, stuck work, a model near its usage limit).
@@ -189,6 +193,7 @@ The approach is the same everywhere: refuse early with the exact fix, never leav
 | Versions | Old database, newer database, new MCP protocol, official SDK changes | Automatic migration with a backup; "upgrade Roundtable" for newer databases; fallback handshake; tested against official MCP clients 1.x and 2.x |
 | Your mistakes | Typo in a setting; `rt init` in the wrong folder; project in Dropbox | Refused with the right setting suggested; pointed to the right folder; `rt doctor` warns about syncing |
 | Platform differences | Windows paths and consoles, Python 3.13's change to absolute paths on Windows, slow name lookup on some Macs | Handled in code; CI runs every test on Linux, macOS and Windows with Python 3.10 to 3.14 |
+| Background runs | The app is not signed in, not installed, or hangs; the old session is gone; the dashboard is closed; two runners for one seat | The app's own error is shown and the run backs off (1 to 30 minutes); not installed is refused with the install command; runs stop at the time limit; a missing session falls back to a fresh one; runners are their own processes and keep going; a second runner is refused |
 | Bugs in Roundtable | Anything unexpected | Logged with a traceback to `errors.log`; the model gets a clear message and keeps working; the dashboard shows the error instead of crashing |
 
 ### What is not covered
@@ -196,11 +201,11 @@ The approach is the same everywhere: refuse early with the exact fix, never leav
 Being honest about the limits:
 
 - **One computer.** All models must run on the machine that holds the project. There is no sync across computers yet.
-- **No automatic restart of models.** If a model's app crashes, its work is safe (leases, branches, checkpoints), but you start it again.
+- **Background runs only for Claude Code and Codex.** Other apps act only while you talk to them. A background runner does not restart itself after your computer restarts; start it again from the dashboard.
 - **Models can still do harm with their own shell.** The rules stop mix-ups between cooperating models; they are not a security wall. A model with shell access can do anything you can, and the test commands you lock run with your permissions.
 - **Some apps are verified only against their documentation.** Claude Code and Codex were tested for real; Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor and the VS Code panels follow their documented settings formats but have not been run with a real sign-in.
 - **Tests decide "done".** If a task's test command is weak, a weak change can pass. That is why you read the commands before locking, and why review depth exists.
 
 ## 11. How it is tested
 
-94 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, and the MCP protocol with the official client libraries. The first real run, with Claude Code (Claude Opus 5.5) and Codex (GPT-6.1 Sol), went through blind drafts, critique, merge and approval as designed.
+104 automated tests, run by GitHub Actions on Linux, macOS and Windows with Python 3.10 to 3.14 on every push. They cover whole projects from goal to merge, four processes claiming one task at once, timeouts and killed runners, merge conflicts, the commit guard and chained hooks, setting files for every app, migration of an old database, the dashboard's API and its security checks, the terminal and editor openers, and the MCP protocol with the official client libraries, and a whole project driven end to end by background runs of stand-in Claude Code and Codex programs that speak the real protocol (planning, building, tests, review, merge, quick mode, failures, starting and stopping), plus the benchmark harness and its hidden tests checked against a reference solution. The first real run, with Claude Code (Claude Opus 5.5) and Codex (GPT-6.1 Sol), went through blind drafts, critique, merge and approval as designed.

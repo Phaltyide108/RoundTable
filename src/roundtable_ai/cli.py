@@ -37,10 +37,10 @@ All commands: rt --help    Something wrong: rt doctor    Guide: the Guide page i
 
 HELP_GROUPS = """commands by purpose:
   start here        ui, init, status, doctor
-  models            seat (add, list, pause, resume, release, remove), launch, setup
+  models            seat (add, set, list, pause, resume, release, remove), launch, run, setup
   plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
   problems          alert, vote, freeze, unfreeze
-  follow along      log, usage, watch, export, compact, config
+  follow along      log, usage, watch, export, compact, config, bench
   for apps          mcp, call
 """
 
@@ -132,6 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--roles", help="comma list of plan,build,review (default all)")
     s.add_argument("--no-worktree", action="store_true", help="no separate working copy")
     seat.add_parser("list", help="list seats")
+    s = seat.add_parser("set", help="change a seat's model or thinking effort")
+    s.add_argument("handle")
+    s.add_argument("--model")
+    s.add_argument("--effort", help="claude-code: low|medium|high|xhigh|max; codex-cli: minimal|low|medium|high|xhigh; default clears it")
     for name, hlp in (("pause", "pause a seat"), ("resume", "resume a seat"), ("remove", "remove a seat"),
                       ("release", "free a seat whose chat was closed"), ("worktree", "create or repair its working copy")):
         seat.add_parser(name, help=hlp).add_argument("handle")
@@ -140,6 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("goal")
     s.add_argument("--planners", help="comma list of seats")
     s.add_argument("--review", choices=["low", "mid", "high"])
+    s.add_argument("--quick", action="store_true", help="skip the planning rounds: one AI splits the goal into tasks")
+    s.add_argument("--auto", action="store_true", help="start building without waiting for your approval")
 
     plan = sub.add_parser("plan", help="the plan").add_subparsers(dest="sub", metavar="action")
     plan.add_parser("view", help="show the plan").add_argument("--draft")
@@ -273,6 +279,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("handle")
     s.add_argument("--print", action="store_true", dest="print_only", help="print the command instead of running it")
 
+    s = sub.add_parser("run", help="run a seat in the background: Roundtable starts its app whenever it has work")
+    s.add_argument("handle")
+    s.add_argument("--once", action="store_true", help="do the waiting work once, then stop")
+    s.add_argument("--stop", action="store_true", help="stop the seat's background runner")
+    s.add_argument("--detach", action="store_true", help="start it as its own process and return")
+
+    bench = sub.add_parser("bench", help="does a team do better than one AI? same task, hidden tests").add_subparsers(dest="sub", metavar="action")
+    bench.add_parser("list", help="benchmark tasks")
+    s = bench.add_parser("run", help="run each contender on a task, then score them with hidden tests")
+    s.add_argument("--task", default="sheet")
+    s.add_argument("--solo", action="append", help="an AI alone: claude, codex, claude:high, codex:gpt-6.1-sol:xhigh (repeatable)")
+    s.add_argument("--team", action="append", help="a team, comma separated: claude,codex (repeatable)")
+    s.add_argument("--mode", choices=["quick", "full"], default="quick", help="how the team plans (default quick)")
+    s.add_argument("--review", choices=["low", "mid", "high"], default="mid", help="how carefully the team checks itself")
+    s.add_argument("--minutes", type=float, default=40, help="time limit per contender")
+    s.add_argument("--out", help="folder for the work and the report (default ./roundtable-bench/<time>)")
+    s = bench.add_parser("score", help="score a folder against a task's hidden tests")
+    s.add_argument("folder")
+    s.add_argument("--task", default="sheet")
+
     sub.add_parser("doctor", help="check everything and suggest fixes")
     s = sub.add_parser("watch", help="notify you and wake seats when needed")
     s.add_argument("--once", action="store_true")
@@ -302,11 +328,14 @@ def _route(args) -> tuple[str, dict[str, Any]] | None:
                                 "roles": roles, "worktree": False if args.no_worktree else None}
         if s == "list":
             return "seat.list", {}
+        if s == "set":
+            return "seat.set", {"handle": args.handle, "model": args.model, "effort": args.effort}
         if s in ("pause", "resume", "remove", "release", "worktree"):
             return f"seat.{s}", {"handle": args.handle}
     if c == "goal":
         planners = [x.strip() for x in args.planners.split(",")] if args.planners else None
-        return "plan.goal", {"goal": args.goal, "planners": planners, "review": args.review}
+        return "plan.goal", {"goal": args.goal, "planners": planners, "review": args.review,
+                             "mode": "quick" if args.quick else "full", "auto": bool(args.auto)}
     if c == "plan":
         if s == "view":
             return "plan.view", {"draft": args.draft}
@@ -502,6 +531,29 @@ def _run(args) -> int:
         from .launch import launch
 
         return launch(args.handle, home=args.home, print_only=args.print_only)
+    if args.cmd == "bench":
+        from . import bench
+
+        if not args.sub:
+            print("rt bench list | rt bench run [--solo claude --solo codex --team claude,codex] | rt bench score FOLDER")
+            return 2
+        return bench.main(args)
+    if args.cmd == "run":
+        from . import runner
+        from .context import open_ctx
+
+        if args.stop or args.detach:
+            ctx = open_ctx(args.home)
+            home = ctx.home
+            ctx.close()
+            if args.stop:
+                runner.request_stop(home, args.handle)
+                print(f"{args.handle}: background runner stopped")
+                return 0
+            pid = runner.start_detached(home, args.handle)
+            print(f"{args.handle} now runs in the background (process {pid}); stop it with: rt run {args.handle} --stop")
+            return 0
+        return runner.run_seat(args.home, args.handle, once=args.once)
     if args.cmd == "doctor":
         from .doctor import run_doctor
 

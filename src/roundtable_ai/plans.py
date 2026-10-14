@@ -82,13 +82,17 @@ def _pick_planners(ctx, wanted, limit: int) -> list[str]:
 
 @op("plan.goal", who=WHO_HUMAN, desc="Start a plan for a goal",
     params=[Param("goal", required=True), Param("planners", type="list", desc="default: up to 3, spread across companies"),
-            Param("review", enum=("low", "mid", "high"), desc="also set the review depth")])
-def goal(ctx, goal, planners=None, review=None) -> Result:
-    goal = util.cap_chars(util.require_text(goal, "goal"), 2000, "goal")
+            Param("review", enum=("low", "mid", "high"), desc="also set the review depth"),
+            Param("mode", enum=("full", "quick"), default="full",
+                  desc="full: blind drafts, critique, agreement; quick: one AI splits the goal into tasks at once"),
+            Param("auto", type="bool", default=False, desc="start building without waiting for you to approve the plan")])
+def goal(ctx, goal, planners=None, review=None, mode="full", auto=False) -> Result:
+    goal = util.cap_chars(util.require_text(goal, "goal"), 4000, "goal")
+    mode = mode or "full"
     cur = active(ctx)
     if cur is not None:
         raise RTError(CONFLICT, f"plan P{cur['id']} is still {cur['stage']}", "finish it, or cancel it: rt plan cancel")
-    chosen = _pick_planners(ctx, planners, ctx.setting("planning", "max_planners"))
+    chosen = _pick_planners(ctx, planners, 1 if mode == "quick" else ctx.setting("planning", "max_planners"))
     if not chosen:
         raise RTError(STATE, "no active seat can plan", "add seats first: rt seat add <name> --model <id> --app <app>")
     if review:
@@ -100,17 +104,26 @@ def goal(ctx, goal, planners=None, review=None) -> Result:
     chair = chosen[0]
     if prev and prev["chair"] in chosen:
         chair = chosen[(chosen.index(prev["chair"]) + 1) % len(chosen)]
+    if mode == "quick":
+        chair, chosen = chosen[0], chosen[:1]
     with ctx.tx():
         now = util.now()
         cur = ctx.db.execute(
-            "INSERT INTO plans(goal, stage, chair, planners, created_by, created_at, stage_changed_at) VALUES (?, 'drafting', ?, ?, 'human', ?, ?)",
-            (goal, chair, util.jdump(chosen), now, now))
+            "INSERT INTO plans(goal, stage, chair, planners, created_by, created_at, stage_changed_at, mode, auto_lock) "
+            "VALUES (?, ?, ?, ?, 'human', ?, ?, ?, ?)",
+            (goal, "merging" if mode == "quick" else "drafting", chair, util.jdump(chosen), now, now, mode, 1 if auto else 0))
         pid = int(cur.lastrowid)
-        events.emit(ctx, "plan.goal", f"P{pid} goal: {util.one_line(goal, 90)} · planners {', '.join(chosen)} draft blind · chair {chair}",
+        how = f"quick: {chair} splits it into tasks" if mode == "quick" else f"planners {', '.join(chosen)} draft blind · chair {chair}"
+        events.emit(ctx, "plan.goal", f"P{pid} goal: {util.one_line(goal, 90)} · {how}" + (" · starts without approval" if auto else ""),
                     ref=f"P{pid}", audience=chosen)
-    lines = [f"plan P{pid} started · planners: {', '.join(chosen)} (blind drafts) · chair: {chair} · review depth: {ctx.setting('review', 'level')}",
-             "each planner: open its app and say 'check Roundtable' (or rt launch <seat>)"]
-    return Result("\n".join(lines), {"plan": pid, "planners": chosen, "chair": chair})
+    if mode == "quick":
+        lines = [f"plan P{pid} started in quick mode · {chair} breaks the goal into tasks now · review depth: {ctx.setting('review', 'level')}"
+                 + (" · work starts without your approval" if auto else "")]
+    else:
+        lines = [f"plan P{pid} started · planners: {', '.join(chosen)} (blind drafts) · chair: {chair} · review depth: {ctx.setting('review', 'level')}"
+                 + (" · work starts without your approval" if auto else "")]
+    lines.append("each planner: open its app and say 'check Roundtable', start it in the background (rt run <seat>), or rt launch <seat>")
+    return Result("\n".join(lines), {"plan": pid, "planners": chosen, "chair": chair, "mode": mode})
 
 
 # ---------------------------------------------------------------- drafting
@@ -296,7 +309,11 @@ def view(ctx, draft=None) -> Result:
         if votes:
             lines.append("responses: " + "; ".join(f"{v['seat']} {v['decision']}" + (f" ({util.one_line(v['reason'], 60)})" if v["reason"] else "") for v in votes))
     if p["stage"] == "merging" and me == p["chair"]:
-        lines.append("you chair: merge the drafts and critiques -> rt_plan propose text=... tasks=[...]")
+        if _mode(p) == "quick":
+            lines.append("quick mode: you alone break the goal into tasks now -> rt_plan propose text=... tasks=[...]. "
+                         "If the goal names seats for parts of the work, make them the owners; otherwise spread the work across the builders.")
+        else:
+            lines.append("you chair: merge the drafts and critiques -> rt_plan propose text=... tasks=[...]")
     if p["stage"] == "proposed" and not human and me != p["chair"]:
         if not ctx.db.one("SELECT 1 FROM approvals WHERE plan_id = ? AND version = ? AND seat = ?", (p["id"], p["version"], me)):
             lines.append("respond: rt_plan approve, or rt_plan object reason=...")
@@ -356,11 +373,40 @@ def propose(ctx, text, tasks) -> Result:
         version = p["version"] + 1
         ctx.db.execute("UPDATE plans SET version = ?, proposal_text = ?, proposal_tasks = ? WHERE id = ?", (version, text, util.jdump(specs), p["id"]))
         others = [v for v in _voters(ctx) if v != p["chair"]]
-        if not others:
-            _set_stage(ctx, p["id"], "awaiting_human", f"P{p['id']} v{version} proposed; ready for the human to lock")
-            return Result(f"proposal v{version} saved ({len(specs)} tasks) · no other seats to approve: waiting for the human to lock")
+        if not others or _mode(p) == "quick":
+            _set_stage(ctx, p["id"], "awaiting_human", f"P{p['id']} v{version} proposed by {p['chair']} ({len(specs)} tasks); ready for the human to lock")
+            started = _auto_lock(ctx, p["id"])
+            if started:
+                return Result(f"proposal v{version} saved · {started}")
+            why = "quick mode" if _mode(p) == "quick" and others else "no other seats to approve"
+            return Result(f"proposal v{version} saved ({len(specs)} tasks) · {why}: waiting for the human to lock")
         _set_stage(ctx, p["id"], "proposed", f"P{p['id']} v{version} proposed by {p['chair']} ({len(specs)} tasks): approve or object", audience=others)
     return Result(f"proposal v{version} saved ({len(specs)} tasks) · waiting for: {', '.join(others)}", {"version": version})
+
+
+def _mode(p) -> str:
+    try:
+        return p["mode"] or "full"
+    except (IndexError, KeyError):
+        return "full"
+
+
+def _auto_lock(ctx, plan_id: int) -> str:
+    """When the human chose to start without approving, lock the plan the moment it is ready."""
+    from . import tasks as tasks_mod
+
+    p = ctx.db.one("SELECT * FROM plans WHERE id = ?", (plan_id,))
+    if p is None or not p["auto_lock"] or p["stage"] != "awaiting_human" or not p["proposal_tasks"]:
+        return ""
+    specs = tasks_mod.validate_specs(ctx, util.jload(p["proposal_tasks"], []))
+    with ctx.tx():
+        ctx.db.execute("UPDATE plans SET stage = 'locked', locked_at = ?, stage_changed_at = ?, proposal_tasks = ? WHERE id = ?",
+                       (util.now(), util.now(), util.jdump(specs), p["id"]))
+        ctx.db.execute("UPDATE assignments SET status = 'cancelled', done_at = ? WHERE kind = 'critique' AND status = 'open'", (util.now(),))
+        events.emit(ctx, "plan.locked", f"P{p['id']} started without approval, as the human chose: {len(specs)} tasks", ref=f"P{p['id']}",
+                    audience=[r["handle"] for r in ctx.db.all("SELECT handle FROM seats WHERE status = 'active'")], actor="system")
+        ids = tasks_mod.materialize(ctx, p["id"], specs)
+    return f"plan locked automatically (the human chose not to approve it): {', '.join(ids)} are ready to claim"
 
 
 def _respond(ctx, decision: str, reason: str | None) -> Result:
@@ -388,7 +434,8 @@ def _respond(ctx, decision: str, reason: str | None) -> Result:
         objections = [s for s, d in got.items() if d == "object"]
         if not objections:
             _set_stage(ctx, p["id"], "awaiting_human", f"P{p['id']} v{p['version']} approved by all seats; the human can lock it")
-            return Result("recorded · everyone approved; waiting for the human to lock the plan")
+            started = _auto_lock(ctx, p["id"])
+            return Result("recorded · everyone approved; " + (started or "waiting for the human to lock the plan"))
         if p["revision_rounds"] == 0:
             ctx.db.execute("UPDATE plans SET revision_rounds = 1 WHERE id = ?", (p["id"],))
             _set_stage(ctx, p["id"], "merging", f"P{p['id']}: objections from {', '.join(objections)}; chair {p['chair']} revises once", audience=[p["chair"]])

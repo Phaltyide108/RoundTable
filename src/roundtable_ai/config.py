@@ -76,6 +76,10 @@ SCHEMA: dict[str, dict[str, tuple[Any, Any, str]]] = {
         "statusline": (True, bool, "Seats started with rt launch in Claude Code show usage + inbox in their status line"),
         "warn_percent": (90, int, "Notify you when a seat passes this share of its 5-hour or 7-day limit"),
     },
+    "runner": {
+        "permissions": ("edits", ("edits", "all"), "Background runs: edits = its own files, Roundtable, git and the project's test commands; all = any command"),
+        "max_minutes": (45, int, "A background run is stopped after this many minutes"),
+    },
     "dashboard": {
         "port": (8765, int, "Local dashboard port (127.0.0.1 only)"),
     },

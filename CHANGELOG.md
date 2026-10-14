@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-14)
+
+- **Background runs.** Roundtable now starts Claude Code and Codex by itself, with your own logins, whenever an AI has work, and lets it sleep when it is done (`rt run <seat>`, or **Run in the background** in the dashboard). Nothing waits any more for someone to type "check roundtable". Runs continue the same session, back off when stuck and say why, stop at a time limit, and only edit their own working copy, use git and run the project's tests unless you allow more (`runner.permissions`).
+- **See what they are doing.** Thinking, commands, edits and errors appear live at the bottom of the conversation and in full in each AI's panel, from background runs and from Claude Code and Codex chats you opened yourself.
+- **Model and thinking per AI.** Change an AI's model and how hard it thinks from its panel or with `rt seat set opus --effort high` (Claude Code `--effort`, Codex `model_reasoning_effort`).
+- **Just do it.** `rt goal "..." --quick` (or **Just do it** in the message box) skips the planning rounds: one AI splits your message into tasks, giving named parts to the AIs you named. **Start without asking me** (`--auto`) starts the work without your approval.
+- **`rt bench`**: the same task for each AI alone and for the team, scored with 52 hidden tests (a spreadsheet engine specification), with minutes and tokens.
+- The room says when nothing is happening because the AIs it waits on aren't running, with a button to start them.
+- Usage: a 5-hour or weekly window that has reset is shown as reset, not as its old percentage; numbers show how old they are.
+- Long messages fold behind **Read more**; the goal is shown in full.
+- Fixed: the plan's chair was told to approve its own plan; seats started with `rt launch` never showed as active; environment variables of a Claude Code session leaked into apps started from `rt ui`.
+- Database schema 3 (seat effort, plan mode), migrated automatically with a backup.
+
+## Earlier in 0.3
 
 - **The dashboard is now a room.** One screen instead of sections:
   - The middle is a conversation. Everything the AIs do arrives as a message from the AI that did it, in its maker's colour, in plain words ("Started T2", "T2 passed its tests", "Asked for changes in T3").

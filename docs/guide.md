@@ -10,13 +10,28 @@ You can do everything from the dashboard (`rt ui`) or from the terminal. This gu
 | --- | --- | --- |
 | 1. Set up the project | open `rt ui` in the folder, **Set up Roundtable in this folder** | `rt init` |
 | 2. Add two or more models | **Choose your AIs** on the first visit, later **Add an AI** under the table | `rt seat add opus --model claude-opus-5-5 --app claude-code` |
-| 3. Start each one | **Start** next to each AI (terminal, VS Code or Cursor opens for you) | `rt launch opus` (one terminal each) |
-| 4. Give them a goal | type it in the message box, pick Light / Standard / Thorough, **Start planning** | `rt goal "what to build" --review mid` |
+| 3. Start each one | **Run in the background** (Claude Code and Codex), or **Open a terminal**; VS Code and Cursor open for you | `rt run opus --detach`, or `rt launch opus` (one terminal each) |
+| 4. Give them a goal | type it in the message box; **Plan together** or **Just do it**; Light / Standard / Thorough; optionally **Start without asking me** | `rt goal "what to build" --review mid` (`--quick`, `--auto`) |
 | 5. Approve the plan they agree on | **Read and approve the plan** (pinned above the message box) after reading the test commands | `rt plan view`, then `rt plan lock` |
 
 After that the models claim tasks, work in their own folders, and close tasks. Roundtable runs each task's test command itself, a model from another company reviews it at the depth you chose, and it is merged into your branch.
 
-**Models do not listen in the background.** When a chat goes quiet, type `check roundtable` in it. `rt watch` (or leaving the dashboard open) tells you when something needs you.
+**Models only act while something starts them.** An AI that runs in the background is started by Roundtable whenever it has work: a plan to write, a plan to comment on or agree to, a task to build or fix, a change to check, a problem to acknowledge, or a message from you. An AI you opened yourself acts only while you talk to it: when its chat goes quiet, type `check roundtable` in it. If the plan is waiting for an AI that isn't running, the room says so with a button to fix it.
+
+## Running in the background
+
+- **Start / stop:** in the AI's panel (click it on the left), or `rt run opus --detach` and `rt run opus --stop`. `rt run opus` keeps it in the current terminal instead.
+- **What it may do:** by default edit files in its own working copy, use the Roundtable tools and git, and run the project's own test commands; other commands are refused. Settings → Background runs → "Any command" lifts that (`runner.permissions = "all"`).
+- **What you see:** its thinking, the commands it runs and the files it edits, live at the bottom of the conversation and in full in its panel.
+- **When it fails:** a run that changes nothing is not repeated at once; the wait doubles from 1 to 30 minutes and the room shows it as stuck, with the app's own error (for example "not signed in"). **Try again now** retries at once. A run is stopped after 45 minutes (`runner.max_minutes`).
+- **Sessions:** each run continues the same conversation, so the AI remembers earlier runs; if that conversation is gone, it starts a fresh one by itself.
+- **Model and thinking:** in the AI's panel, pick the model and how hard it thinks (Claude Code: low to max; Codex: minimal to extra high). Background runs use it from their next start (`rt seat set opus --effort high`).
+
+## Plan together, or just do it
+
+- **Plan together** (default): up to three AIs each write a plan without seeing the others', comment on each other's without knowing who wrote which, one combines them and the others agree. Best for bigger changes.
+- **Just do it** (`rt goal "..." --quick`): one AI splits your message into tasks at once, giving named parts to the AIs you named ("sol: ... opus: ..."). Tests and checks still run.
+- **Start without asking me** (`--auto`): the plan starts as soon as it is ready. Its test commands then run on your computer without you reading them first.
 
 ## The room
 
@@ -24,7 +39,7 @@ The dashboard is one screen, laid out like a meeting.
 
 | Where | What it is for | Terminal |
 | --- | --- | --- |
-| The middle | The conversation: every plan, change, test, check and note arrives as a message from the AI that did it, in its maker's colour. Search it with the magnifier. | `rt log` |
+| The middle | The conversation: every plan, change, test, check and note arrives as a message from the AI that did it, in its maker's colour, with long messages folded behind **Read more**. At the bottom, what each AI is doing right now (thinking, running a command, editing a file). Search it with the magnifier. | `rt log` |
 | Above the message box | Whatever needs you, with the buttons that settle it: approve the plan, check changes that came to you, add or set aside work the AIs found, problems (alerts 3-5), tied votes, AIs that aren't started. Empty means nothing to do. | `rt status`, `rt plan lock`, `rt review ...`, `rt task accept`, `rt alert ...`, `rt vote ...` |
 | The message box | Before a plan: the goal, with Light / Standard / Thorough checking. During one: **Tell them** (a note every AI reads), **Report a problem** (a level 3 alert), **Add a task**. Enter sends; Shift+Enter starts a new line. | `rt goal`, `rt memory add`, `rt alert raise`, `rt task file` |
 | The left | The team around the table: a green light means the AI's app is open, blue that it is working. Click an AI for its start button, usage, pause, its folder, or to remove it. **Add an AI**, **Pause everyone**, Settings and Help sit here too. | `rt seat ...`, `rt launch`, `rt usage`, `rt freeze` |

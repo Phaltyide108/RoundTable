@@ -167,12 +167,31 @@ def test_old_database_is_migrated(rt):
     conn.execute("DROP INDEX tasks_priority")
     for col in ("kind", "priority", "labels", "filed_by"):
         conn.execute(f"ALTER TABLE tasks DROP COLUMN {col}")
+    conn.execute("ALTER TABLE seats DROP COLUMN effort")
+    conn.execute("ALTER TABLE plans DROP COLUMN mode")
+    conn.execute("ALTER TABLE plans DROP COLUMN auto_lock")
     conn.commit()
     conn.close()
     rt.add_seat("opus")
-    assert rt.q("SELECT value FROM meta WHERE key = 'schema_version'")[0]["value"] == "2"
+    assert rt.q("SELECT value FROM meta WHERE key = 'schema_version'")[0]["value"] == "3"
     assert (rt.home / "roundtable.db.backup-v1").exists()
     rt.human("memory.add", text="works after migration")
+    rt.human("seat.set", handle="opus", effort="high")
+    assert rt.q("SELECT effort FROM seats WHERE handle = 'opus'")[0]["effort"] == "high"
+
+
+def test_version_2_database_gains_effort_and_plan_modes(rt):
+    db = rt.home / "roundtable.db"
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+    conn.execute("ALTER TABLE seats DROP COLUMN effort")
+    conn.execute("ALTER TABLE plans DROP COLUMN auto_lock")   # mode left in place: a half-finished upgrade
+    conn.commit()
+    conn.close()
+    rt.add_seat("opus")
+    assert rt.q("SELECT value FROM meta WHERE key = 'schema_version'")[0]["value"] == "3"
+    assert (rt.home / "roundtable.db.backup-v2").exists()
+    assert rt.q("SELECT effort FROM seats")[0]["effort"] is None
 
 
 def test_more_apps_get_pinned_settings_in_their_working_copy(rt, repo):

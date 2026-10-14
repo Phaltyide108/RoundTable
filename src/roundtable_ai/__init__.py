@@ -5,4 +5,4 @@ ChatGPT's Codex mode, Codex CLI, ...). They never talk to each other directly:
 every seat reads and writes one shared record through Roundtable's MCP server.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

@@ -171,6 +171,42 @@ def add(ctx, handle, model, app, company=None, roles=None, worktree=None) -> Res
     return Result("\n".join(lines), {"handle": handle, "company": company, "roles": roles})
 
 
+@op("seat.set", who=WHO_HUMAN, desc="Change a seat's model or how hard it thinks (takes effect the next time it starts)",
+    params=[Param("handle", required=True), Param("model", desc="model id the app accepts"),
+            Param("effort", desc="thinking effort: claude-code low|medium|high|xhigh|max, codex-cli minimal|low|medium|high|xhigh; 'default' clears it")])
+def set_seat(ctx, handle, model=None, effort=None) -> Result:
+    handle = util.check_handle(handle)
+    if model is None and effort is None:
+        raise RTError(INVALID, "nothing to change", "pass --model and/or --effort")
+    with ctx.tx():
+        row = get(ctx, handle)
+        changes = []
+        if model is not None:
+            model = util.require_text(model, "model")
+            if model != row["model"]:
+                ctx.db.execute("UPDATE seats SET model = ? WHERE handle = ?", (model, handle))
+                changes.append(f"model {model}")
+        if effort is not None:
+            effort = str(effort).strip().lower()
+            if effort in ("", "default", "none"):
+                effort = None
+            else:
+                allowed = apps_mod.EFFORTS.get(row["app"])
+                if not allowed:
+                    raise RTError(INVALID, f"Roundtable can't set the thinking effort of {apps_mod.label(row['app'])}",
+                                  "set it in the app itself")
+                if effort not in allowed:
+                    raise RTError(INVALID, f"effort must be one of {', '.join(allowed)} for {row['app']}")
+            if effort != row["effort"]:
+                ctx.db.execute("UPDATE seats SET effort = ? WHERE handle = ?", (effort, handle))
+                changes.append(f"effort {effort or 'app default'}")
+        if not changes:
+            return Result(f"seat {handle}: nothing changed")
+        events.emit(ctx, "seat.changed", f"seat {handle}: {', '.join(changes)}", ref=handle)
+    return Result(f"seat {handle}: {', '.join(changes)} · takes effect the next time it starts (background runs pick it up at once)",
+                  {"handle": handle})
+
+
 @op("seat.worktree", who=WHO_HUMAN, desc="Create (or repair) a seat's working copy", params=[Param("handle", required=True)])
 def make_worktree(ctx, handle) -> Result:
     row = get(ctx, util.check_handle(handle))

@@ -55,3 +55,23 @@ Every failure has a defined outcome and a message that says what to do next. Mos
 | A website tries to use the dashboard | Refused: wrong Host header, wrong origin, or missing page token |
 | A per-seat settings file (`.mcp.json`, `.gemini/settings.json`, ...) is tracked by the project | Left alone; the model page shows what to add by hand |
 | An unexpected bug | Logged to `.roundtable/logs/errors.log`; the model gets a clear error and its session keeps working |
+
+## Added in 0.3: background runs, quick plans, benchmark
+
+| Situation | What happens |
+| --- | --- |
+| A goal is given while no AI is running | The room says "Nothing is happening: opus and sol aren't running" with a button that runs them in the background |
+| A background run's app is not signed in, not installed, or fails to start | The app's own error is shown in the room and the AI's panel; the run is retried after 1, 2, 4 ... up to 30 minutes, or at once with **Try again now**; not installed is refused with the install command |
+| A run ends without changing anything on the table | Not repeated at once (same back-off); shown as stuck with the reason |
+| A run hangs | Stopped after `runner.max_minutes` (45), process tree and all; the AI picks up again at its next run |
+| The saved session can't be resumed (deleted, other machine) | The run falls back to a fresh session by itself |
+| Two runners for one seat, or a runner plus a terminal for the same seat | The second is refused, naming the first |
+| The dashboard closes | Runners are their own processes and keep going; stop them from the AI's panel or with `rt run <seat> --stop` |
+| You pause everyone, or one AI | No new runs start until you resume; a running one finishes its step |
+| `rt ui` was started from inside a Claude Code session | That session's environment variables are not passed to the apps Roundtable starts, so runs never attach to it |
+| A background AI tries a command outside its allowance | Refused by the app itself (Claude Code `acceptEdits` + allowed tools, Codex `workspace-write` sandbox); allow more with `runner.permissions = "all"` |
+| Quick plan where the goal names AIs ("sol: ... opus: ...") | The planning AI gives those parts to those AIs; others are spread across the builders |
+| Start without approval | The plan locks itself the moment it is ready; its test commands run without you reading them, which the dashboard says before you choose it |
+| A 5-hour or weekly limit window has reset since the last numbers | Shown as reset, never as the old percentage; numbers older than 30 minutes say so |
+| Database from Roundtable 0.2 | Migrated to schema 3 on first open, after a backup (`roundtable.db.backup-v2`); a column added by a half-finished upgrade is skipped |
+| `rt bench` contender produces no code, broken code or hangs the tests | Scored 0 with the reason; the hidden tests run in a copy with a time limit and never enter a contender's folder |

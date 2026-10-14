@@ -12,7 +12,14 @@ Task status values (see DESIGN.md for the state machine):
   merge_blocked, done, cancelled
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# Version 3 (Roundtable 0.3): how hard each seat thinks, and plan modes.
+MIGRATION_2_TO_3 = r"""
+ALTER TABLE seats ADD COLUMN effort TEXT;                            -- low | medium | high | xhigh | max (NULL: the app's default)
+ALTER TABLE plans ADD COLUMN mode TEXT NOT NULL DEFAULT 'full';      -- full (blind drafts, critique, agreement) | quick (one AI splits it)
+ALTER TABLE plans ADD COLUMN auto_lock INTEGER NOT NULL DEFAULT 0;   -- 1: start building without waiting for the human
+"""
 
 # Version 2 (Roundtable 0.2): task kinds, priorities, labels, who filed a task,
 # and project memory. Applied to new databases too (after SCHEMA_V1).

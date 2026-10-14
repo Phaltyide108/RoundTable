@@ -51,7 +51,7 @@ def _ago(value: str | None) -> str:
 
 
 def _seats(ctx) -> list[dict]:
-    from . import launch, usage
+    from . import activity, launch, runner, usage
     from .seats import is_live, roles_of
 
     out = []
@@ -65,12 +65,20 @@ def _seats(ctx) -> list[dict]:
         except Exception:
             snap = None
         ex = usage.exchange_totals(ctx, s["handle"])
+        run = runner.status(ctx.home, s["handle"]) if s["app"] in runner.SUPPORTED else {"running": False, "unsupported": True}
+        recent_secs = util.seconds_since(s["last_seen"])
+        act = activity.recent(ctx, s, 6)
+        now_item = act["items"][-1] if act["items"] and not act.get("stale") else None
         out.append({
             "handle": s["handle"], "model": s["model"], "company": s["company"], "app": s["app"], "app_label": app.label,
             "roles": roles_of(s), "status": s["status"], "live": is_live(ctx, s), "seen": _ago(s["last_seen"]),
             "joined_ever": bool(s["last_seen"]), "doing": s["now_doing"] or "", "worktree": s["worktree"] or "",
             "tasks": live_tasks.get(s["handle"], []), "start": launch.start_info(ctx, s),
             "usage": {"snapshot": snap, "text": usage.describe(snap), "exchange": ex},
+            "effort": s["effort"] or "", "efforts": list(apps.EFFORTS.get(s["app"], ())),
+            "runner": run, "can_run": s["app"] in runner.SUPPORTED,
+            "active": bool(run.get("running")) or (recent_secs is not None and recent_secs < ctx.setting("seats", "live_minutes") * 60),
+            "now": now_item, "now_source": act.get("source"),
         })
     return out
 
@@ -101,7 +109,10 @@ def _plan(ctx) -> dict | None:
                    "by": m["proposed_by"], "needs": util.jload(m["needs"], []), "human": "human" in util.jload(m["needs"], [])}
                   for m in ctx.db.all("SELECT * FROM amendments WHERE plan_id = ? AND status = 'pending' ORDER BY created_at", (p["id"],))]
     return {
-        "id": p["id"], "goal": p["goal"], "stage": p["stage"], "stage_label": STAGE_LABEL.get(p["stage"], p["stage"]),
+        "id": p["id"], "goal": p["goal"], "stage": p["stage"],
+        "stage_label": "One AI is splitting the goal into tasks" if p["stage"] == "merging" and (p["mode"] or "full") == "quick" else STAGE_LABEL.get(p["stage"], p["stage"]),
+        "mode": p["mode"] or "full", "auto": bool(p["auto_lock"]),
+        "waiting_on": _waiting_on(ctx, p),
         "chair": p["chair"], "planners": planners, "version": p["version"], "people": people,
         "since": _ago(p["stage_changed_at"]), "created": _ago(p["created_at"]),
         "overdue": p["stage"] == "drafting" and age > ctx.setting("planning", "draft_timeout_minutes") * 60,
@@ -113,6 +124,30 @@ def _plan(ctx) -> dict | None:
         "critique_pairs": [[r["seat"], r["author"]] for r in ctx.db.all(
             "SELECT a.seat, d.author FROM assignments a JOIN drafts d ON d.id = a.target WHERE a.kind = 'critique' AND a.status = 'open' AND d.plan_id = ?", (p["id"],))],
     }
+
+
+def _waiting_on(ctx, p) -> list[str]:
+    """Seats the plan cannot move without right now."""
+    stage = p["stage"]
+    if stage == "drafting":
+        return [h for h in util.jload(p["planners"], []) if not ctx.db.one("SELECT 1 FROM drafts WHERE plan_id = ? AND author = ?", (p["id"], h))]
+    if stage == "critique":
+        return sorted({r["seat"] for r in ctx.db.all(
+            "SELECT a.seat FROM assignments a JOIN drafts d ON d.id = a.target WHERE a.kind = 'critique' AND a.status = 'open' AND d.plan_id = ?", (p["id"],))})
+    if stage == "merging":
+        return [p["chair"]] if p["chair"] else []
+    if stage == "proposed":
+        from .plans import _voters
+
+        got = {r["seat"] for r in ctx.db.all("SELECT seat FROM approvals WHERE plan_id = ? AND version = ?", (p["id"], p["version"]))}
+        return [v for v in _voters(ctx) if v != p["chair"] and v not in got]
+    if stage == "locked":
+        out = [r["owner"] for r in ctx.db.all("SELECT DISTINCT owner FROM tasks WHERE plan_id = ? AND status IN ('claimed','changes_requested') AND owner IS NOT NULL", (p["id"],))]
+        out += [r["seat"] for r in ctx.db.all("SELECT DISTINCT seat FROM assignments WHERE kind = 'review' AND status = 'open' AND seat != 'human'")]
+        if ctx.db.one("SELECT 1 FROM tasks WHERE plan_id = ? AND status = 'ready'", (p["id"],)):
+            out += [r["handle"] for r in ctx.db.all("SELECT handle, roles FROM seats WHERE status = 'active'") if "build" in (r["roles"] or "")]
+        return list(dict.fromkeys(out))
+    return []
 
 
 def _tasks(ctx) -> list[dict]:
@@ -181,6 +216,20 @@ def _needs(ctx, plan, tasks, alerts, votes, seats) -> list[dict]:
                           "title": f"{a['proposed_by']} thinks a problem is more serious (level {a['proposed']}, now {a['level']})", "body": a["title"],
                           "actions": [{"label": f"Change to level {a['proposed']}", "op": "alert.set_level", "params": {"id": a["id"], "level": a["proposed"]}, "style": "primary"},
                                       {"label": "See the problem", "go": "alerts"}]})
+    if plan and plan["stage"] not in ("done", "cancelled", "awaiting_human") and not ctx.db.meta_get("frozen") == "1":
+        by = {x["handle"]: x for x in seats}
+        idle = [h for h in plan["waiting_on"] if h in by and by[h]["status"] == "active" and not by[h]["active"]]
+        busy_somewhere = any(by[h]["active"] for h in plan["waiting_on"] if h in by)
+        if idle and not (plan["stage"] == "locked" and busy_somewhere):
+            runnable = [h for h in idle if by[h]["can_run"]]
+            names = ", ".join(idle[:-1]) + (" and " if len(idle) > 1 else "") + idle[-1]
+            actions = [{"label": ("Run them" if len(runnable) > 1 else "Run " + runnable[0]) + " in the background", "run": runnable, "style": "primary"}] if runnable else []
+            actions.append({"label": "How to start them", "go": f"ai/{idle[0]}"})
+            items.append({"key": f"idle:{plan['id']}:{plan['stage']}:{','.join(idle)}", "tone": "warn",
+                          "title": f"Nothing is happening: {names} {'is' if len(idle) == 1 else 'are'}n't running",
+                          "body": "The plan is waiting for " + ("it" if len(idle) == 1 else "them") + ". AIs only act while their app runs. "
+                                  "Run them in the background and Roundtable wakes them whenever there is work, or open their apps yourself.",
+                          "actions": actions})
     if plan and plan["stage"] == "awaiting_human":
         items.append({"key": f"plan:{plan['id']}:v{plan['version']}", "tone": "decide", "title": "The plan is ready for you",
                       "body": f"{len(plan['tasks'])} tasks. Check the test commands it will run, then approve it.",
@@ -306,6 +355,7 @@ def build(ctx) -> dict[str, Any]:
         "apps": [{"key": a.key, "label": a.label, "company": a.company, "start": a.start, "coding": a.coding, "connect": a.connect}
                  for a in apps.APPS.values()],
         "companies": list(apps.COMPANIES), "models": apps.MODEL_SUGGESTIONS,
+        "goals": {str(r["id"]): r["goal"] for r in ctx.db.all("SELECT id, goal FROM plans ORDER BY id DESC LIMIT 30")},
         "seats": seats, "plan": plan, "tasks": tasks, "alerts": alerts, "votes": votes, "memories": memories,
         "reviews": reviews_for_you, "level_requests": level_requests, "needs": needs,
         "getting_started": _getting_started(seats, plan, tasks),
@@ -314,6 +364,16 @@ def build(ctx) -> dict[str, Any]:
         "counts": {"needs": sum(1 for n in needs if n["tone"] in ("decide", "stop", "warn")), "alerts": len(alerts),
                    "reviews": len(reviews_for_you) + len(level_requests), "backlog": sum(1 for t in tasks if t["status"] == "backlog")},
     }
+
+
+def seat_activity(ctx, handle: str, n: int = 80) -> dict[str, Any]:
+    from . import activity, runner, seats
+
+    row = seats.get(ctx, util.check_handle(handle))
+    out = activity.recent(ctx, row, max(1, min(int(n), 300)))
+    out["runner"] = runner.status(ctx.home, row["handle"]) if row["app"] in runner.SUPPORTED else {"running": False}
+    out["seat"] = row["handle"]
+    return out
 
 
 def task_detail(ctx, task_id: str) -> dict[str, Any]:

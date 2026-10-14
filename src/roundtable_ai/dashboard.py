@@ -121,9 +121,14 @@ def do_special(session: Session, kind: str, body: dict) -> dict[str, Any]:
             if app.folder and row["worktree"]:
                 appsetup.seat_folder_config(ctx, row["handle"])
             if app.start == "terminal":
+                from . import runner
+
+                if runner.is_running(ctx.home, row["handle"]):
+                    raise RTError(CONFLICT, f"{row['handle']} already runs in the background",
+                                  "stop the background run first, or let it carry on")
                 if seats.is_live(ctx, row):
                     raise RTError(CONFLICT, f"{row['handle']} is already live in another chat",
-                                  "use that window; if you closed it, choose Free the seat and start again")
+                                  "use that window; if you closed it, choose Forget its old chat and start again")
                 argv = launch.terminal_argv(ctx, row["handle"])
                 try:
                     text = desktop.open_terminal(argv, ctx.root, f"Roundtable {row['handle']}")
@@ -136,6 +141,20 @@ def do_special(session: Session, kind: str, body: dict) -> dict[str, Any]:
             if app.start == "editor":
                 return {"text": desktop.open_editor(row["app"], info["folder"]), "join": info["join"], "steps": info["steps"]}
             return {"text": "follow these steps", "join": info["join"], "steps": info["steps"]}
+        if kind in ("run", "stop"):  # background runner for a seat
+            from . import runner
+
+            row = seats.get(ctx, str(body.get("handle") or "").lower())
+            if kind == "stop":
+                runner.request_stop(ctx.home, row["handle"])
+                return {"text": f"{row['handle']} no longer runs in the background"}
+            if row["status"] != "active":
+                raise RTError(CONFLICT, f"{row['handle']} is {row['status']}", "resume it first")
+            if seats.is_live(ctx, row):
+                raise RTError(CONFLICT, f"{row['handle']} is open in a chat right now",
+                              "close that chat first, or choose Forget its old chat if you already closed it")
+            pid = runner.start_detached(ctx.home, row["handle"])
+            return {"text": f"{row['handle']} now runs in the background", "pid": pid}
         if kind == "folder":  # open a seat's working copy (or the project) in the file manager
             target = str(body.get("path") or ctx.root)
             allowed = {str(ctx.root)} | {r["worktree"] for r in ctx.db.all("SELECT worktree FROM seats WHERE worktree IS NOT NULL")}
@@ -211,6 +230,12 @@ def make_handler(session: Session, token: str, port_ref: dict):
                         before = int(q["before"]) if q.get("before", "").isdigit() else None
                         return self._json(200, {"events": ui_state._events(ctx, limit=100, before=before, query=q.get("q") or None,
                                                                            task=q.get("task") or None)})
+                    finally:
+                        ctx.close()
+                if url.path == "/api/activity":
+                    ctx = session.open_ctx()
+                    try:
+                        return self._json(200, ui_state.seat_activity(ctx, q.get("seat", ""), int(q["n"]) if q.get("n", "").isdigit() else 80))
                     finally:
                         ctx.close()
                 if url.path == "/api/doctor":

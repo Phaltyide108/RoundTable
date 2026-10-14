@@ -76,23 +76,36 @@ def _codex_overrides(ctx, handle: str) -> list[str]:
     return out
 
 
+def _effort(row) -> str | None:
+    try:
+        value = row["effort"]
+    except (IndexError, KeyError):
+        return None
+    allowed = apps_mod.EFFORTS.get(row["app"], ())
+    return value if value in allowed else None
+
+
 def command_for(ctx, seat_row, prompt: str | None = None, *, headless: bool = False) -> tuple[list[str], Path]:
     """The command that starts this seat's app, and the folder to run it in."""
     handle, app, model = seat_row["handle"], seat_row["app"], seat_row["model"]
     cwd = _workdir(ctx, seat_row)
     prompt = prompt or first_prompt(handle)
+    effort = _effort(seat_row)
     if app == "claude-code":
         cfg = appsetup.seat_mcp_file(ctx, handle)
         base = [_exe("claude")]
+        extra = ["--effort", effort] if effort else []
         if headless:
-            return base + ["-p", prompt, "--model", model, "--mcp-config", str(cfg), "--allowedTools", "mcp__roundtable"], cwd
-        cmd = base + [prompt, "--model", model, "--append-system-prompt", system_note(handle)]
+            return base + ["-p", prompt, "--model", model, *extra, "--mcp-config", str(cfg), "--allowedTools", "mcp__roundtable"], cwd
+        cmd = base + [prompt, "--model", model, *extra, "--append-system-prompt", system_note(handle)]
         if ctx.setting("usage", "statusline"):
             cmd += ["--settings", json.dumps({"statusLine": {"type": "command", "command": statusline_command(handle), "refreshInterval": 30}})]
         return cmd + ["--mcp-config", str(cfg)], cwd
     if app == "codex-cli":
         base = [_exe("codex")] + (["exec"] if headless else [])
         cmd = base + ["-m", model, "-C", str(cwd)] + _codex_overrides(ctx, handle)
+        if effort:
+            cmd += ["-c", f"model_reasoning_effort={toml_value(effort)}"]
         if headless:
             cmd += ["-s", "read-only"]
         return cmd + [prompt], cwd
@@ -176,6 +189,11 @@ def launch(handle: str, *, home: str | None = None, print_only: bool = False) ->
         if app.start != "terminal":
             print(_manual_steps(ctx, row))
             return 0
+        from . import runner
+
+        if runner.is_running(ctx.home, row["handle"]) and not print_only:
+            raise RTError(CONFLICT, f"seat {row['handle']} already runs in the background",
+                          f"stop that first: rt run {row['handle']} --stop")
         if seats_mod.is_live(ctx, row) and not print_only:
             raise RTError(CONFLICT, f"seat {row['handle']} is already live in another chat",
                           f"use that chat, or if it is closed: rt seat release {row['handle']}")
@@ -188,7 +206,9 @@ def launch(handle: str, *, home: str | None = None, print_only: bool = False) ->
                               f"install it ({app.install or 'see its website'}), open a new terminal, then try again")
             cmd, cwd = [exe], _workdir(ctx, row)
             print(f"when {app.label.replace(' in a terminal', '')} is ready, send it: join Roundtable as {row['handle']}")
-        env = dict(os.environ)
+        from .runner import clean_env
+
+        env = clean_env(os.environ)
         env.update({"RT_SEAT": row["handle"], "RT_HOME": str(ctx.home)})
     finally:
         ctx.close()

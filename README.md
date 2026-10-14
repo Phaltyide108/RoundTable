@@ -69,10 +69,21 @@ Your browser opens the dashboard. The first visit is three steps:
 
 1. **Set up Roundtable in this folder** (it only adds a hidden `.roundtable` folder).
 2. **Choose your AIs**: tick the apps they run in (Claude Code or Codex in a terminal, Claude Code or Codex in VS Code, Gemini CLI, Qwen Code, opencode, Copilot CLI, Cursor, or the Claude / ChatGPT desktop apps). Names and models are filled in for you. Two from different companies catch each other's mistakes.
-3. **Start them.** Terminal apps open in a new terminal window in the AI's own copy of the project, already connected. Editors open the right folder, and the page shows the one message to send.
-4. **Give them a goal** and choose how carefully they check each other (Light, Standard or Thorough).
+3. **Start them.** Easiest: **Run in the background**. Roundtable starts Claude Code or Codex by itself, with your own login, whenever that AI has work, and puts it back to sleep when it is done: nothing gets stuck waiting for you to type "check roundtable". Or open each one in a terminal (already connected) and watch it there. Editors open the right folder, and the page shows the one message to send.
+4. **Give them a goal.** Choose **Plan together** (each AI writes a plan, they compare notes and agree) or **Just do it** (one AI splits your message into tasks at once, e.g. "sol: fix the usage numbers. opus: add a thinking setting"), how carefully they check each other (Light, Standard or Thorough), and whether to **start without asking you** to approve the plan.
 
-Then you are in **the room**. Everything the AIs do arrives in the middle as a conversation. Whatever needs you (approving the plan, changes to check, work the AIs found, problems, tied votes, an AI that isn't started) is pinned just above the message box with the buttons that settle it; when nothing is pinned, you have nothing to do. The team sits around the table on the left, the plan and every task are on the right, and anything else (an AI's usage, a task's tests and diff, settings, help) opens as a panel over the room and closes with Esc. **Help** lists the terminal command for every button.
+Then you are in **the room**. Everything the AIs do arrives in the middle as a conversation, and while they work you see it live: their thinking, the commands they run and the files they edit. Whatever needs you (approving the plan, changes to check, work the AIs found, problems, tied votes, an AI that isn't started) is pinned just above the message box with the buttons that settle it; when nothing is pinned, you have nothing to do. The team sits around the table on the left, the plan and every task are on the right, and anything else (an AI's usage, its model and how hard it thinks, everything it did, a task's tests and diff, settings, help) opens as a panel over the room and closes with Esc. **Help** lists the terminal command for every button.
+
+## Does a team do better than one AI?
+
+`rt bench run` finds out on your own computer. It gives the same task (a written specification of a small spreadsheet engine: formulas, functions, errors, cycles, performance) to each AI alone and to the team, then runs 52 hidden tests none of them saw against what each one built, and writes a report: tests passed, minutes and tokens.
+
+```bash
+rt bench run                                   # Claude alone, Codex alone, then both as a team (about 40 min each at most)
+rt bench run --solo claude:high --team claude:high,codex:xhigh --mode full
+```
+
+It uses your real Claude Code and Codex limits, one contender at a time. Each contender's work is kept next to the report, and `rt bench score FOLDER` scores any folder against the hidden tests.
 
 ## Quickstart: the terminal
 
@@ -82,9 +93,9 @@ The same, without the browser:
 rt init
 rt seat add opus --model claude-opus-5-5 --app claude-code
 rt seat add sol  --model gpt-6.1-sol     --app codex-cli
-rt launch opus              # in one terminal
-rt launch sol               # in another
-rt goal "Add a REST endpoint for user profiles, with tests" --review mid
+rt run opus --detach        # Roundtable runs it in the background whenever it has work
+rt run sol --detach         # (or: rt launch sol, a terminal you watch and talk to)
+rt goal "Add a REST endpoint for user profiles, with tests" --review mid   # --quick: skip the planning rounds
 rt status                   # what needs you
 rt plan view && rt plan lock
 ```
@@ -171,7 +182,7 @@ opus (claude-opus-5-5, claude-code)
   Roundtable exchange: 42 calls, ~6,310 tokens (today 12 calls, ~1,840) + ~1,900 tokens of tool definitions per session
 ```
 
-Where the numbers come from: Claude Code seats started with `rt launch` get a status line that shows their usage and inbox, and passes the numbers to Roundtable. Plan limits appear on Pro and Max plans. Codex seats are read from Codex's own session logs. The desktop chat apps don't share these numbers, so only Roundtable's cost is shown for them. `rt watch` notifies you when a seat passes 90% of a limit (`rt config set usage.warn_percent 80` to change it). Seats from the same company usually share one plan's limits.
+Numbers that are out of date say so, and a 5-hour or weekly window that has reset since is shown as reset, never as its old percentage. Where the numbers come from: Claude Code seats started with `rt launch` get a status line that shows their usage and inbox, and passes the numbers to Roundtable. Plan limits appear on Pro and Max plans. Codex seats are read from Codex's own session logs. The desktop chat apps don't share these numbers, so only Roundtable's cost is shown for them. `rt watch` notifies you when a seat passes 90% of a limit (`rt config set usage.warn_percent 80` to change it). Seats from the same company usually share one plan's limits.
 
 ## More than two models
 
@@ -193,7 +204,8 @@ Any number of seats can join, from any companies, including two from the same co
 
 ## Honest limits
 
-- Models don't listen in the background. Command-line models can be woken for critical alerts; chat panels and desktop apps can't, so `rt watch` notifies you and you say "check roundtable" in that chat.
+- Only Claude Code and Codex can run in the background (Roundtable starts them headless with `claude -p` and `codex exec`). Chat panels, editors and desktop apps act only while you talk to them: `rt watch` notifies you and you say "check roundtable" in that chat.
+- An AI running in the background may, by default, edit files in its own working copy, use git and run the project's test commands; anything else is refused. `rt config set runner.permissions all` lets it run any command in its working copy.
 - One computer: all models must run on the machine that holds the project (no sync across computers yet).
 - Seats on the same subscription share its usage limit.
 - ChatGPT's plain Chat mode isn't supported: it reaches custom MCP servers only through Developer Mode and a public tunnel.
@@ -205,6 +217,8 @@ Any number of seats can join, from any companies, including two from the same co
 | --- | --- |
 | Anything odd | `rt doctor` checks everything and prints the fix for each problem |
 | "seat X is live in another chat" | if that chat is closed: `rt seat release X` |
+| Nothing happens after you give a goal | the AIs aren't running: the room says so; choose **Run them in the background** (or `rt run opus --detach`) |
+| An AI running in the background is "stuck" | its panel shows why (often: not signed in to the app on this computer); sign in once with `claude` or `codex`, then **Try again now** |
 | A task "waits to merge" | your main folder has uncommitted changes or a conflict; see `rt status`, then `rt task merge` |
 | Claude Code shows the server as pending | run `claude` in the project and approve the `roundtable` server |
 | The app can't start the server | rerun `rt setup <app>` (for example after moving Python); `rt doctor` shows which entry is stale |

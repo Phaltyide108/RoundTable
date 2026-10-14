@@ -16,7 +16,7 @@ const TOASTS = document.getElementById("toasts");
 let S = null;            // last state from the server
 let lastJSON = "";
 let route = { page: "room", parts: [], sub: "" };
-const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false };
+const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false, activity: {} };
 const ui = {
   mode: "note", level: null, allAsks: false, started: {}, preview: {}, confirm: {}, pick: {}, wstep: 0,
   accepting: {}, editOpen: false, linkOpen: false, cancelPlan: false, showDone: false, adding: false,
@@ -244,11 +244,16 @@ async function refresh(force) {
   try { next = await getJSON("/api/state"); }
   catch (e) { if (S) toast("Lost contact with the dashboard", "Start it again with: rt ui", { error: true }); return; }
   if (taskRoute()) await loadTask(taskRoute());
-  const json = JSON.stringify(next) + JSON.stringify(cache.task[taskRoute()] || null);
+  if (route.page === "ai" && route.sub) await loadActivity(route.sub);
+  const json = JSON.stringify(next) + JSON.stringify(cache.task[taskRoute()] || null) + (route.page === "ai" ? JSON.stringify(cache.activity[route.sub] || null) : "");
   if (!force && json === lastJSON) return;
   lastJSON = json;
   S = next;
   render();
+}
+
+async function loadActivity(handle) {
+  try { cache.activity[handle] = await getJSON("/api/activity?n=80&seat=" + encodeURIComponent(handle)); } catch (e) { /* shown as loading */ }
 }
 
 async function loadTask(id) {
@@ -339,8 +344,10 @@ function themeButton(withLabel) {
 
 /* ---------------------------------------------------------------- what each AI is doing, in a few words */
 
+function running(x) { return !!(x.runner && x.runner.running); }
 function lampOf(x) {
-  if (x.status === "paused" || !x.live) return "";
+  if (x.status === "paused" || !(x.active || x.live)) return "";
+  if (running(x)) return x.runner.state === "working" ? "busy" : "on";
   return x.tasks.length || busyPlanning(x) ? "busy" : "on";
 }
 
@@ -358,7 +365,12 @@ function busyPlanning(x) {
 
 function seatPhrase(x) {
   if (x.status === "paused") return "Paused";
-  if (!x.joined_ever) return x.status === "active" ? "Not started yet" : capital(x.status);
+  if (running(x)) {
+    if (x.runner.state === "stuck") return "Stuck: retrying soon";
+    if (x.runner.state === "paused") return "Paused with everyone";
+    if (x.runner.state !== "working") return "Waiting for work";
+  }
+  if (!x.joined_ever && !running(x)) return x.status === "active" ? "Not started yet" : capital(x.status);
   if (x.tasks.length) {
     const t = taskOf(x.tasks[0]);
     const verb = t && t.status === "changes_requested" ? "Fixing" : t && ["proving", "in_review"].includes(t.status) ? "Waiting on checks for" : "Building";
@@ -367,12 +379,15 @@ function seatPhrase(x) {
   const reviewing = S.tasks.find(t => t.status === "in_review" && (t.reviewers || []).includes(x.handle));
   if (reviewing) return "Checking " + reviewing.id;
   const planning = busyPlanning(x);
-  if (planning) return planning;
-  if (x.live) return x.doing ? capital(plainText(x.doing)) : "Ready for work";
-  return /^\d+s\b/.test(x.seen) ? "Away, seen just now" : "Away, seen " + x.seen;
+  if (planning) return (x.active || x.live) ? planning : "Not running · " + ({ "Writing its plan": "its plan is due", "Commenting on the plans": "its comments are due",
+    "Combining the plans": "the combined plan is due", "Reading the combined plan": "its answer is due" }[planning] || "work waits");
+  if (running(x)) return "Working";
+  if (x.active || x.live) return x.doing ? capital(plainText(x.doing)) : "Ready for work";
+  return "Not running · seen " + (/^\d+s\b/.test(x.seen) ? "just now" : x.seen);
 }
 
-function needsStart(x) { return x.status === "active" && !x.joined_ever; }
+function needsStart(x) { return x.status === "active" && !x.joined_ever && !running(x); }
+function idleSeat(x) { return x.status === "active" && !running(x) && !(x.active || x.live); }
 
 function avatar(handle, size, noLamp) {
   const x = seatOf(handle);
@@ -405,7 +420,7 @@ function crew() {
       const phrase = seatPhrase(x);
       return h("li", null, h("button", { class: "mate", type: "button", "aria-current": route.page === "ai" && route.sub === x.handle ? "true" : null,
         "aria-label": `${x.handle}, ${prettyModel(x.model)}: ${phrase}`, onclick: () => go("#/ai/" + x.handle) },
-        avatar(x.handle), h("span", { class: "who" }, h("strong", { text: x.handle }), h("span", { class: needsStart(x) ? "you" : null, text: phrase }))));
+        avatar(x.handle), h("span", { class: "who" }, h("strong", { text: x.handle }), h("span", { class: needsStart(x) || (x.runner && x.runner.state === "stuck") || /^Not running · its|^Not running · the|due$/.test(phrase) ? "you" : null, text: phrase }))));
     })),
     h("button", { class: "add-mate", type: "button", "aria-label": "Add an AI", onclick: () => go("#/add") }, icon("plus", "sm"), h("span", { text: "Add an AI" })),
     h("div", { class: "crew-foot" }, pauseButton(),
@@ -508,8 +523,10 @@ function say(e) {
     case "seat.removed": return { actor: "human", text: plainText(t) };
     case "seat.paused": case "seat.resumed": case "seat.released": return { text: plainText(t), tone: "quiet" };
     case "plan.goal": {
-      const goal = S.plan && t.startsWith(S.plan.id + " ") ? S.plan.goal : (rest(t, /goal: (.*?)( · |$)/) || t);
-      return { actor: "human", text: "New goal: " + goal };
+      const pid = rest(t, /^P(\d+) goal/);
+      const goal = (pid && S.goals && S.goals[pid]) || (rest(t, /goal: (.*?)( · |$)/) || t);
+      const quick = / · quick: /.test(t);
+      return { actor: "human", text: (quick ? "New goal (just do it): " : "New goal: ") + goal };
     }
     case "plan.draft": return { text: "Wrote its plan. The others can't see it until every plan is in." };
     case "plan.critique":
@@ -544,7 +561,14 @@ function say(e) {
     }
     case "alert.resolved": return { text: "Solved a problem: " + plainText(rest(t, /: (.*)$/) || t), tone: "good" };
     case "alert.acked": return { text: "Acknowledged a problem", tone: "quiet" };
-    case "memory.added": return { text: "Noted: " + (rest(t, /remembered N\d+: (.*)$/) || t), tone: e.actor === "human" ? "" : "quiet" };
+    case "memory.added": return e.actor === "human" ? { text: rest(t, /remembered N\d+: (.*)$/) || t, said: true } : { text: rest(t, /remembered N\d+: (.*)$/) || t };
+    case "seat.changed": {
+      const m = t.match(/^seat (\S+): (.*)$/);
+      if (!m) return { actor: "human", text: plainText(t), tone: "quiet" };
+      const parts = m[2].split(", ").map(x => x.startsWith("model ") ? "uses " + prettyModel(x.slice(6))
+        : x === "effort app default" ? "thinks as hard as its app decides" : x.startsWith("effort ") ? "thinks at " + (EFFORT_LABEL[x.slice(7)] || x.slice(7)) + " effort" : x);
+      return { actor: "human", text: `${m[1]} now ${listWords(parts)}`, tone: "quiet" };
+    }
     case "vote.opened": return { text: "Asked everyone to vote: " + (rest(t, /^V\d+: (.*?)( \(|$)/) || t) };
     case "vote.tied": return { marker: "The vote is tied. You decide.", icon: "alert", you: true };
     case "vote.decided": return { text: plainText(t) };
@@ -560,6 +584,19 @@ function say(e) {
       return { text: capital(plainText(text)), tone: QUIET.has(e.type) ? "quiet" : e.level >= 4 ? "bad" : "" };
     }
   }
+}
+
+/* Long text is folded to a few lines with "Read more"; what you opened stays open. */
+const expanded = new Set();
+function longText(text, key, cls, limit) {
+  text = String(text || "");
+  limit = limit || 320;
+  const long = text.length > limit || text.split("\n").length > 4;
+  const open = expanded.has(key);
+  const el = h("div", { class: (cls || "") + (long && !open ? " clamp" : "") }, linkify(text));
+  if (!long) return el;
+  return h("div", { class: "folded" }, el, h("button", { class: "more-link", type: "button", "aria-expanded": String(open),
+    onclick: () => { if (open) expanded.delete(key); else expanded.add(key); render(); } }, open ? "Show less" : "Read more"));
 }
 
 function dayLabel(day) {
@@ -604,7 +641,7 @@ function feedView() {
       return;
     }
     const actor = m.actor || e.actor;
-    const line = h("div", { class: "line" + (m.tone ? " " + m.tone : "") }, linkify(m.text));
+    const line = longText(m.text, "ev" + e.id, "line" + (m.tone ? " " + m.tone : ""));
     if (cur && cur.actor === actor && cur.count < 10) { cur.lines.append(line); cur.count++; return; }
     const x = seatOf(actor);
     cur = { actor, count: 1, lines: h("div", { class: "lines" }, line) };
@@ -612,11 +649,30 @@ function feedView() {
       h("div", { class: "meta" }, h("strong", { text: displayName(actor) }), x ? h("span", { class: "model", text: prettyModel(x.model) }) : null, h("time", { text: e.at })),
       cur.lines));
   });
-  const now = S.seats.filter(x => x.live && (x.tasks.length || busyPlanning(x)));
-  if (now.length && !S.project.frozen) inner.append(h("div", { class: "typing", "aria-live": "off" },
-    h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")),
-    h("span", { text: now.map(x => `${x.handle}: ${seatPhrase(x).toLowerCase()}`).join(" · ") })));
+  const live = S.seats.filter(x => x.now && (running(x) ? x.runner.state === "working" || ago(x.now.t) < 120 : (x.active || x.live) && ago(x.now.t) < 600));
+  if (live.length && !S.project.frozen) inner.append(h("div", { class: "live-now", "aria-live": "off" }, live.map(liveCard)));
   return h("div", { class: "feed", role: "log", "aria-label": "What your AIs are doing" }, inner);
+}
+
+const STEP = { think: ["is thinking", "notes"], say: ["says", "send"], run: ["is running a command", "terminal"], edit: ["is editing", "code"],
+  read: ["is reading", "search"], tool: ["is using Roundtable", "team"], done: ["finished a step", "check"], error: ["hit a problem", "alert"],
+  start: ["is starting", "play"] };
+function ago(t) { return t ? Math.max(0, (Date.now() / 1000) - Number(t)) : 1e9; }
+function agoText(t) {
+  const s = ago(t);
+  return s < 45 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago";
+}
+
+function liveCard(x) {
+  const [verb, ic] = STEP[x.now.kind] || ["is working", "dot"];
+  const working = running(x) ? x.runner.state === "working" : ago(x.now.t) < 90;
+  return h("button", { class: "live", type: "button", title: "See everything " + x.handle + " is doing", onclick: () => go("#/ai/" + x.handle) },
+    avatar(x.handle, "sm", true),
+    h("span", { class: "live-body" },
+      h("span", { class: "live-head" }, h("strong", { text: x.handle }), " ", verb,
+        working ? h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")) : h("span", { class: "faint", text: " · " + agoText(x.now.t) })),
+      h("span", { class: "live-text" + (x.now.kind === "run" || x.now.kind === "edit" ? " mono" : "") }, x.now.text)),
+    icon(ic, "sm"));
 }
 
 function introCard() {
@@ -645,7 +701,7 @@ function buildAsks() {
   });
   S.needs.filter(n => !skip(n.key)).forEach(n => asks.push({ key: n.key, tone: n.tone === "stop" ? "stop" : n.tone === "info" ? "info" : "",
     icon: n.key === "frozen" ? "pause" : n.key.startsWith("plan") || n.key.startsWith("amend") ? "plan" : n.key.startsWith("review") || n.key.startsWith("level") ? "review" : "alert",
-    title: plainText(n.title), body: plainText(n.body), actions: n.actions.map(a => ({ label: a.label, primary: a.style === "primary", go: a.go, op: a.op, params: a.params })) }));
+    title: plainText(n.title), body: plainText(n.body), actions: n.actions.map(a => ({ label: a.label, primary: a.style === "primary", go: a.go, op: a.op, params: a.params, runSeats: a.run })) }));
   S.votes.filter(v => v.status === "tied").forEach(v => asks.push({ key: "vote-" + v.id, icon: "team", title: "The AIs can't agree: " + v.topic,
     body: v.options.map(o => { const bs = v.ballots.filter(b => b.choice === o); return `${o}: ${bs.map(b => b.seat + (b.reason ? ` (“${b.reason}”)` : "")).join(", ") || "no votes"}`; }).join("\n"),
     actions: v.options.map(o => ({ label: "Choose “" + fit(o, 28) + "”", run: b => act("vote.decide", { id: v.id, choice: o }, { button: b, title: "Decided" }) })) }));
@@ -658,19 +714,48 @@ function buildAsks() {
         : { label: "Add to the work…", primary: true, go: "task/" + t.id },
       { label: "Not now", run: b => act("task.cancel", { task: t.id, reason: "not needed (decided by the human)" }, { button: b, title: "Set aside " + t.id }) }] });
   });
-  if (!isLivePlan(p) || ["drafting", "critique"].includes(p.stage)) S.seats.filter(needsStart).forEach(x => {
+  S.seats.filter(x => running(x) && x.runner.state === "stuck").forEach(x => asks.push({ key: "stuck-" + x.handle, tone: "", who: x.handle,
+    title: `${x.handle} is stuck`, body: plainText(x.runner.error || x.runner.message || ""),
+    actions: [{ label: "Try again now", primary: true, run: async b => { busy(b, true); await post("/api/do", { kind: "stop", handle: x.handle }); await special("run", { handle: x.handle }, { button: b, title: "Trying again" }); } },
+      { label: "See what it did", go: "ai/" + x.handle }] }));
+  const covered = S.needs.some(n => n.key.startsWith("idle:"));
+  const fresh = covered ? [] : S.seats.filter(needsStart);
+  const runnable = fresh.filter(x => x.can_run && !ui.started[x.handle]);
+  if (runnable.length > 1) {
+    const names = listWords(runnable.map(x => x.handle));
+    asks.push({ key: "start-many", tone: "info", icon: "play", title: `${names} aren't running yet`,
+      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal from its panel on the left.",
+      actions: [{ label: "Run them in the background", primary: true, runSeats: runnable.map(x => x.handle) }] });
+  }
+  fresh.filter(x => !(runnable.length > 1 && runnable.includes(x))).forEach(x => {
     const info = ui.started[x.handle];
     asks.push({ key: "start-" + x.handle, tone: "info", who: x.handle, title: `${x.handle} isn't at the table yet`,
-      body: info ? "" : startHint(x), extra: info ? startedBox(x, info) : null,
-      actions: [{ label: startLabel(x), primary: true, run: b => startSeat(x, b) }, { label: "How to start it", go: "ai/" + x.handle }] });
+      body: info ? "" : (x.can_run ? "Let Roundtable run it in the background: it wakes it whenever there is work. Or open it in a terminal yourself." : startHint(x)),
+      extra: info ? startedBox(x, info) : null,
+      actions: x.can_run ? [{ label: "Run in the background", primary: true, runSeats: [x.handle] }, { label: "Open a terminal instead", run: b => startSeat(x, b) }]
+        : [{ label: startLabel(x), primary: true, run: b => startSeat(x, b) }, { label: "How to start it", go: "ai/" + x.handle }] });
   });
   return asks;
+}
+
+async function runSeats(handles, btn) {
+  busy(btn, true);
+  const bad = [];
+  for (const handle of handles) {
+    const res = await post("/api/do", { kind: "run", handle });
+    if (!res.ok) bad.push(res);
+  }
+  busy(btn, false);
+  if (bad.length) toast(capital(plainText(bad[0].message)) || "Could not start it", plainText(bad[0].hint || ""), { error: true });
+  else toast(handles.length === 1 ? `${handles[0]} now runs in the background` : `${listWords(handles)} now run in the background`,
+    "Roundtable wakes them whenever there is work. Watch them at the bottom of the conversation.");
+  await refresh(true);
 }
 
 function askCard(a) {
   return h("article", { class: "ask" + (a.tone ? " " + a.tone : "") },
     a.who ? avatar(a.who, null, true) : h("span", { class: "badge", "aria-hidden": "true" }, icon(a.icon || "alert", "sm")),
-    h("h3", null, linkify(a.title)), a.body ? h("p", { class: "pre" }, linkify(a.body)) : null, a.extra || null,
+    h("h3", null, linkify(a.title)), a.body ? longText(a.body, "ask-" + a.key, "pre", 260) : null, a.extra || null,
     a.actions && a.actions.length ? h("div", { class: "row" }, a.actions.map(actionButton)) : null);
 }
 
@@ -678,6 +763,7 @@ function actionButton(a) {
   const cls = a.primary ? "you small" : "small";
   if (a.go) return h("button", { class: cls, type: "button", onclick: () => go("#/" + a.go) }, a.label);
   if (a.op) return h("button", { class: cls, type: "button", onclick: e => act(a.op, a.params || {}, { button: e.currentTarget }) }, a.label);
+  if (a.runSeats) return h("button", { class: cls, type: "button", onclick: e => runSeats(a.runSeats, e.currentTarget) }, icon("play", "sm"), a.label);
   return h("button", { class: cls, type: "button", onclick: e => a.run(e.currentTarget) }, a.label);
 }
 
@@ -698,9 +784,11 @@ function asksView() {
 
 function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 200) + "px"; }
 
+const QUICK = { placeholder: "Tell them what to do, like “sol: fix the usage numbers. opus: add a thinking setting”",
+  hint: "One AI splits your message into tasks; if you name an AI for a part, it gets that part. Tests and checks still run.", send: "Start" };
 const MODES = {
   goal: { placeholder: "What should your AIs build?",
-    hint: "Say what, where, and how you'll know it works. They each write a plan without seeing the others', comment on each other's, and bring you one plan. Nothing is built before you approve it.", send: "Start planning" },
+    hint: "Say what, where, and how you'll know it works. They each write a plan without seeing the others', comment on each other's, and bring you one plan.", send: "Start planning" },
   note: { label: "Tell them", placeholder: "Tell your AIs something they should know",
     hint: "Saved as a note every AI reads the next time it checks in.", send: "Send" },
   problem: { label: "Report a problem", placeholder: "What's wrong? The first line is the title",
@@ -715,7 +803,8 @@ function composer() {
     h("div", { class: "box off" }, h("p", { class: "muted", text: "Add your AIs first. Then you'll give them a goal here." }),
       h("button", { class: "go", type: "button", onclick: () => go("#/welcome") }, icon("plus", "sm"), "Add your AIs"))));
   const mode = !isLivePlan(p) ? "goal" : ["note", "problem", "task"].includes(ui.mode) ? ui.mode : "note";
-  const M = MODES[mode];
+  const quick = ui.planMode === "quick";
+  const M = mode === "goal" && quick ? Object.assign({}, MODES.goal, QUICK) : MODES[mode];
   const level = ui.level || S.project.review || "mid";
   const ta = h("textarea", { id: "composer-text", class: "grow", "data-k": "composer-" + mode, rows: "1", placeholder: M.placeholder, "aria-label": mode === "goal" ? "The goal" : M.label,
     oninput: e => autosize(e.target),
@@ -727,20 +816,30 @@ function composer() {
     if (!text) { ta.focus(); toast(mode === "goal" ? "Write the goal first" : "Write something first", mode === "goal" ? "One or two sentences is enough." : ""); return; }
     const first = text.split("\n")[0].trim(), more = text.split("\n").slice(1).join("\n").trim() || null;
     const clear = () => { ta.value = ""; };
-    if (mode === "goal") await act("plan.goal", { goal: text, review: level }, { button: btn, title: "Planning started", body: "Each AI now writes its own plan. If one isn't started yet, start it and it catches up.", after: clear });
+    if (mode === "goal") await act("plan.goal", { goal: text, review: level, mode: quick ? "quick" : "full", auto: !!ui.autoLock },
+      { button: btn, title: quick ? "On it" : "Planning started", body: quick ? "One AI is splitting it into tasks now" + (ui.autoLock ? "; work starts without asking you." : "; you approve the tasks before work starts.")
+        : "Each AI now writes its own plan. If one isn't running, start it and it catches up.", after: clear });
     else if (mode === "note") await act("memory.add", { text }, { button: btn, title: "Sent to your AIs", body: "Saved as a note. Every AI reads it the next time it checks in.", after: clear });
     else if (mode === "problem") await act("alert.raise", { level: 3, title: fit(first, 140), description: more }, { button: btn, title: "Your AIs have been told", body: "The AIs working nearby must acknowledge it before they take new work.", after: clear });
     else await act("task.file", { title: fit(first, 140), summary: more }, { button: btn, title: "Task added", body: "It waits above the message box until you add it to the work.", after: clear });
   }
   const modes = mode === "goal"
-    ? h("div", { class: "modes" }, h("span", { class: "lbl", text: "Give your AIs a goal" }), h("span", { class: "faint", text: "Checking:" }),
+    ? h("div", { class: "modes" },
+      h("div", { class: "seg", role: "group", "aria-label": "How they work" },
+        [["full", "Plan together", "Each AI writes a plan, they compare notes and agree on one. Best for bigger changes."],
+          ["quick", "Just do it", "One AI splits your message into tasks and they start. Best when you know what you want."]].map(([v, label, tip]) =>
+          h("button", { type: "button", "aria-pressed": String((ui.planMode || "full") === v), title: tip, onclick: () => { ui.planMode = v; render(); } }, label))),
+      h("span", { class: "faint", text: "Checking:" }),
       h("div", { class: "seg", role: "group", "aria-label": "How carefully they check each other's work" },
-        ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v]))))
+        ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v]))),
+      h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
+        h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" })))
     : h("div", { class: "modes" }, h("div", { class: "seg", role: "group", "aria-label": "What to send" },
       ["note", "problem", "task"].map(m => h("button", { type: "button", "aria-pressed": String(m === mode), onclick: () => { ui.mode = m; render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); } }, MODES[m].label))));
   return h("footer", { class: "composer" }, h("div", { class: "composer-inner" }, modes,
     h("div", { class: "box" }, ta, sendBtn),
-    h("p", { class: "hint", text: M.hint + (mode === "goal" ? "" : " Enter sends; Shift+Enter starts a new line.") })));
+    h("p", { class: "hint", text: M.hint + (mode === "goal" ? (ui.autoLock ? " Work starts without asking you: you won't read the test commands first." : " Nothing is built before you approve it.")
+      : " Enter sends; Shift+Enter starts a new line.") })));
 }
 
 /* ---------------------------------------------------------------- the plan, on the right */
@@ -752,7 +851,7 @@ function planSide() {
     kids.push(h("div", { class: "stack tight" }, h("h2", { text: "How it goes" }), journeySteps()));
     if (p) kids.push(h("p", { class: "faint", text: `Last goal (${p.stage === "done" ? "finished" : "cancelled"}): ${fit(p.goal, 160)}` }));
   } else {
-    kids.push(h("div", { class: "stack tight" }, h("h2", { text: "The goal" }), h("p", { class: "goal", text: p.goal })));
+    kids.push(h("div", { class: "stack tight" }, h("h2", { text: p.mode === "quick" ? "The goal (just do it)" : "The goal" }), longText(p.goal, "goal-side", "goal", 220)));
     if (p.stage !== "locked") kids.push(h("div", { class: "stack tight" }, h("h2", { text: "Planning" }), planSteps(p),
       h("button", { class: p.stage === "awaiting_human" ? "you" : "", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"),
         p.stage === "awaiting_human" ? "Read and approve the plan" : "Read their plans")));
@@ -768,13 +867,14 @@ function planSide() {
 
 function journeySteps() {
   const seats = S.seats, p = S.plan;
-  const started = seats.length && seats.filter(x => x.status === "active").every(x => x.joined_ever);
+  const started = seats.length && seats.filter(x => x.status === "active").every(x => running(x) || x.active || x.live);
+  const live = isLivePlan(p);
   const steps = [
     ["Choose your AIs", "Two or more, from different companies, so they catch each other's mistakes.", seats.length > 0],
-    ["Start them", "Each one opens in its own app, with your own subscription.", !!started || !!p],
-    ["Give them a goal", "In the box at the bottom of the conversation.", !!p],
-    ["Approve their plan", "Nothing is built before you say yes.", !!(p && ["locked", "done"].includes(p.stage))],
-    ["They build and check", "Every task is tested, checked by another AI, then merged.", !!(p && p.stage === "done")],
+    ["Start them", "Run them in the background, or open each one in its own app.", !!started],
+    ["Give them a goal", "In the box at the bottom of the conversation.", !!live],
+    ["Approve their plan", "Nothing is built before you say yes.", !!(live && p.stage === "locked")],
+    ["They build and check", "Every task is tested, checked by another AI, then merged.", false],
   ];
   const at = steps.findIndex(x => !x[2]);
   return h("ol", { class: "steps" }, steps.map(([a, b, done], i) => h("li", { class: done ? "done" : i === at ? "now" : "", "aria-current": i === at ? "step" : null },
@@ -783,7 +883,9 @@ function journeySteps() {
 
 function stageNote(p, id) {
   const people = p.people;
-  if (id === "drafting") return people.filter(x => x.planner).map(x => `${x.seat} ${x.drafted ? "done" : "writing"}`).join(", ");
+  const idle = h => { const x = seatOf(h); return x && idleSeat(x); };
+  if (id === "drafting") return people.filter(x => x.planner).map(x => `${x.seat} ${x.drafted ? "done" : idle(x.seat) ? "not running" : "writing"}`).join(", ");
+  if (id === "merging" && p.chair && idle(p.chair) && p.stage === "merging") return `${p.chair} isn't running`;
   if (id === "critique") { const done = people.reduce((n, x) => n + x.critiques_done, 0), all = people.reduce((n, x) => n + x.critiques, 0); return all ? `${done} of ${all} comments in` : ""; }
   if (id === "merging") return p.chair ? `${p.chair} combines them` : "";
   if (id === "proposed") { const voters = people.filter(x => !x.chair); return voters.length ? `${voters.filter(x => x.approval && x.approval.decision === "approve").length} of ${voters.length} agreed` : ""; }
@@ -792,8 +894,11 @@ function stageNote(p, id) {
 }
 
 function planSteps(p) {
-  const at = STAGE_STEPS.findIndex(x => x[0] === (p.stage === "voting" ? "proposed" : p.stage));
-  return h("ol", { class: "steps" }, STAGE_STEPS.map(([id, label], i) => {
+  const steps = p.mode === "quick"
+    ? [["merging", "One AI splits it into tasks"]].concat(p.auto ? [] : [["awaiting_human", "You approve it"]], [["locked", "They build it"]])
+    : STAGE_STEPS;
+  const at = steps.findIndex(x => x[0] === (p.stage === "voting" ? "proposed" : p.stage));
+  return h("ol", { class: "steps" }, steps.map(([id, label], i) => {
     const note = i <= at ? stageNote(p, id) : "";
     return h("li", { class: i < at ? "done" : i === at ? "now" : "", "aria-current": i === at ? "step" : null },
       h("span", { class: "tick", "aria-hidden": "true" }, i < at ? icon("check", "sm") : null),
@@ -869,7 +974,7 @@ PAGES.plan = st => {
     p ? h("p", { class: "faint", text: `Last goal (${p.stage === "done" ? "finished" : "cancelled"}): ${p.goal}` }) : null] };
   const approving = p.stage === "awaiting_human" || (["proposed", "voting"].includes(p.stage) && p.tasks.length);
   const body = [
-    h("div", { class: "box" }, h("p", { class: "faint", text: "The goal" }), h("p", { class: "goal", text: p.goal })),
+    h("div", { class: "box" }, h("p", { class: "faint", text: p.mode === "quick" ? "The goal (just do it" + (p.auto ? ", no approval)" : ")") : "The goal" }), longText(p.goal, "goal-plan", "goal", 600)),
     p.stage === "awaiting_human" ? approveBlock(p, false) : null,
   ];
   if (p.stage === "locked") body.push(sec(null, progressBlock(), taskGroups(0)));
@@ -969,6 +1074,13 @@ function goalForm(st, after) {
       "Find and fix the bug that makes login fail on Safari.",
       "Write a README that explains how to install and run this project.",
     ].map(x => h("button", { type: "button", onclick: () => { goal.value = x; goal.focus(); } }, x))),
+    h("fieldset", { class: "field" }, h("legend", { text: "How should they work?" }),
+      h("div", { class: "choices" }, [["full", "Plan together", "Each AI writes a plan without seeing the others', they comment on each other's and agree on one. Best for bigger changes."],
+        ["quick", "Just do it", "One AI splits your goal into tasks and they start. Best when you already know what you want, like “sol: do X, opus: do Y”."]].map(([v, label, text]) =>
+        h("label", { class: "choice" }, h("input", { type: "radio", name: "pmode", value: v, "data-k": "pmode-" + v, checked: v === (ui.planMode || "full") }),
+          h("div", null, h("strong", { text: label }), h("span", { text })))))),
+    h("label", { class: "check" }, h("input", { type: "checkbox", id: "auto-lock", "data-k": "auto-lock" }),
+      h("span", null, h("strong", { text: "Start without asking me" }), h("span", { class: "help", text: " Skip approving the plan. Its test commands run on your computer without you reading them first." }))),
     h("fieldset", { class: "field" }, h("legend", { text: "How carefully should they check each other's work?" }),
       h("div", { class: "choices" }, ["low", "mid", "high"].map(v => h("label", { class: "choice" },
         h("input", { type: "radio", name: "level", value: v, "data-k": "level-" + v, checked: v === level }),
@@ -983,7 +1095,9 @@ function goalForm(st, after) {
       if (!text) { toast("Write the goal first", "One or two sentences is enough."); goal.focus(); return; }
       const picked = [...APP.querySelectorAll("input.planner:checked")].map(x => x.value);
       const lv = (APP.querySelector('input[name="level"]:checked') || {}).value;
-      act("plan.goal", { goal: text, planners: picked.length ? picked : null, review: lv }, { button: e.currentTarget, title: "Planning started", body: "Each AI now writes its own plan. If one isn't started yet, start it and it catches up.", after: after || (() => go("#/room")) });
+      const pm = (APP.querySelector('input[name="pmode"]:checked') || {}).value || "full";
+      const auto = !!(APP.querySelector("#auto-lock") || {}).checked;
+      act("plan.goal", { goal: text, planners: pm === "quick" ? null : (picked.length ? picked : null), review: lv, mode: pm, auto }, { button: e.currentTarget, title: "Planning started", body: "Each AI now writes its own plan. If one isn't started yet, start it and it catches up.", after: after || (() => go("#/room")) });
     } }, icon("send", "sm"), "Start planning")));
 }
 
@@ -1176,20 +1290,27 @@ function resets(epoch) {
 
 function usageBlock(x, warnAt) {
   const u = x.usage, snap = u.snapshot || {}, ex = u.exchange;
+  const reset = w => w && w.reset ? h("div", { class: "meter" }, h("span", { text: w === snap.limit_5h ? "5 hours" : "Week" }),
+    h("span", { class: "faint", text: `Reset since${w.was != null ? ` (it was ${Math.round(w.was)}%)` : ""}; new numbers come with its next reply` }), h("span")) : null;
   const meters = u.snapshot ? [
     meter("Chat", snap.context_pct, snap.context_size ? `of ${Math.round(snap.context_size / 1000)}k tokens` : "", warnAt),
-    meter("5 hours", snap.limit_5h && snap.limit_5h.pct, snap.limit_5h && resets(snap.limit_5h.resets_at), warnAt),
-    meter("Week", snap.limit_7d && snap.limit_7d.pct, snap.limit_7d && resets(snap.limit_7d.resets_at), warnAt)].filter(Boolean) : [];
+    reset(snap.limit_5h) || meter("5 hours", snap.limit_5h && snap.limit_5h.pct, snap.limit_5h && resets(snap.limit_5h.resets_at), warnAt),
+    reset(snap.limit_7d) || meter("Week", snap.limit_7d && snap.limit_7d.pct, snap.limit_7d && resets(snap.limit_7d.resets_at), warnAt)].filter(Boolean) : [];
   return h("div", { class: "stack tight" },
     meters.length ? h("div", null, meters) : h("p", { class: "muted", text: ["claude-code", "codex-cli", "codex-vscode", "codex-app"].includes(x.app)
       ? "No numbers yet. They appear after its first reply" + (x.app === "claude-code" ? " when it is started from Roundtable." : ".")
       : "This app doesn't share how much it has used." }),
+    snap.updated_at ? h("p", { class: ago(snap.updated_at) > 1800 ? "box warn" : "faint", text: `Numbers from ${agoText(snap.updated_at)}` +
+      (ago(snap.updated_at) > 1800 ? ". They only update while it works, so they may be out of date." : ".") }) : null,
     h("dl", { class: "kv" },
       snap.session_tokens ? [h("dt", { text: "This chat" }), h("dd", { text: num(snap.session_tokens) + " tokens" })] : null,
-      snap.limit_5h ? [h("dt", { text: "5-hour limit" }), h("dd", { text: resets(snap.limit_5h.resets_at) || "-" })] : null,
-      snap.limit_7d ? [h("dt", { text: "Weekly limit" }), h("dd", { text: resets(snap.limit_7d.resets_at) || "-" })] : null,
+      snap.limit_5h && !snap.limit_5h.reset ? [h("dt", { text: "5-hour limit" }), h("dd", { text: resets(snap.limit_5h.resets_at) || "-" })] : null,
+      snap.limit_7d && !snap.limit_7d.reset ? [h("dt", { text: "Weekly limit" }), h("dd", { text: resets(snap.limit_7d.resets_at) || "-" })] : null,
+      x.runner && x.runner.tokens ? [h("dt", { text: "Background runs" }), h("dd", { text: `about ${num(x.runner.tokens)} tokens in ${plural(x.runner.runs || 0, "run")}` })] : null,
       h("dt", { text: "Roundtable" }), h("dd", { text: `${num(ex.calls)} messages, about ${num(ex.tokens)} tokens (${num(ex.tokens_today)} today)` })));
 }
+
+const EFFORT_LABEL = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 
 PAGES.ai = st => {
   const x = seatOf(route.sub);
@@ -1198,15 +1319,19 @@ PAGES.ai = st => {
   const warn = (st.config.find(c => c.key === "usage.warn_percent") || { value: 90 }).value;
   const jobs = ["plan", "build", "review"].filter(r => x.roles.includes(r)).map(r => ({ plan: "writes plans", build: "builds", review: "checks others' work" }[r]));
   const rmKey = "rm-" + x.handle;
-  const startBtn = x.status !== "active" ? null : h("button", { class: needsStart(x) ? "go" : "", type: "button", onclick: e => startSeat(x, e.currentTarget) },
-    icon(x.start.kind === "terminal" ? "terminal" : x.start.kind === "desktop" ? "desktop" : "code", "sm"), x.live && x.start.kind === "terminal" ? "Open another terminal" : startLabel(x));
-  return { title: x.handle, body: [
-    h("div", { class: "row" }, avatar(x.handle, "lg"), h("div", null, h("strong", { text: prettyModel(x.model) }), h("p", { class: "muted", text: x.app_label })),
-      h("span", { class: "pill " + (x.status === "paused" ? "" : x.live ? (x.tasks.length ? "work" : "ok") : needsStart(x) ? "you" : ""), text: seatPhrase(x) })),
-    sec("Start it", h("p", { class: "muted", text: startHint(x) }), h("div", { class: "row" }, startBtn), info ? startedBox(x, info) : null,
+  const startBtn = x.status !== "active" ? null : h("button", { class: needsStart(x) && !x.can_run ? "go" : "", type: "button", onclick: e => startSeat(x, e.currentTarget) },
+    icon(x.start.kind === "terminal" ? "terminal" : x.start.kind === "desktop" ? "desktop" : "code", "sm"), (x.active || x.live) && x.start.kind === "terminal" ? "Open another terminal" : startLabel(x));
+  const act_ = cache.activity[x.handle];
+  return { title: x.handle, wide: true, body: [
+    h("div", { class: "row" }, avatar(x.handle, "lg"), h("div", null, h("strong", { text: prettyModel(x.model) + (x.effort ? ` · ${EFFORT_LABEL[x.effort] || x.effort} thinking` : "") }), h("p", { class: "muted", text: x.app_label })),
+      h("span", { class: "pill " + (x.status === "paused" ? "" : lampOf(x) === "busy" ? "work" : lampOf(x) === "on" ? "ok" : "you"), text: seatPhrase(x) })),
+    x.can_run ? runnerSection(x) : null,
+    sec("What it is doing", liveList(x, act_)),
+    sec(x.can_run ? "Or open it yourself" : "Start it", h("p", { class: "muted", text: startHint(x) }), h("div", { class: "row" }, startBtn), info ? startedBox(x, info) : null,
       !info && x.start.kind !== "terminal" ? [x.start.steps && x.start.steps.length ? h("ol", { class: "stack tight" }, x.start.steps.map(t => h("li", { text: t }))) : null,
         x.start.join ? [h("p", { class: "faint", text: "The message to send in its chat:" }), copyBox(x.start.join)] : null] : null,
-      h("p", { class: "faint", text: "AIs don't listen in the background. If its chat goes quiet, type “check roundtable” in it." })),
+      h("p", { class: "faint", text: "An AI you open yourself only acts while you talk to it: if its chat goes quiet, type “check roundtable” in it." })),
+    sec("Model and thinking", modelForm(x)),
     sec("What it does", h("p", { text: capital(listWords(jobs)) + "." + (x.roles.includes("build") ? "" : " It can't edit files.") }),
       x.tasks.length ? h("ul", { class: "tasklist" }, x.tasks.map(id => taskOf(id)).filter(Boolean).map(taskButton)) : null,
       x.worktree ? h("p", { class: "faint" }, "Works in its own copy of your project: ", h("span", { class: "mono", text: x.worktree })) : null),
@@ -1220,6 +1345,60 @@ PAGES.ai = st => {
         ? h("button", { class: "danger", type: "button", onclick: e => act("seat.remove", { handle: x.handle }, { button: e.currentTarget, after: () => { ui.confirm[rmKey] = false; close(); } }) }, "Yes, remove " + x.handle)
         : h("button", { class: "ghost danger", type: "button", onclick: () => { ui.confirm[rmKey] = true; render(); setTimeout(() => { ui.confirm[rmKey] = false; render(); }, 5000); } }, "Remove…")))] };
 };
+
+function runnerSection(x) {
+  const r = x.runner || {};
+  const on = running(x);
+  const state = !on ? "Not running in the background" : { working: "Working now", waiting: "Waiting for work", stuck: "Stuck", paused: "Paused", starting: "Starting" }[r.state] || "Running";
+  const everything = (S.config.find(c => c.key === "runner.permissions") || {}).value === "all";
+  return h("section", { class: "section runner" + (on ? " on" : "") },
+    h("div", { class: "spread" }, h("h2", { text: "Run it in the background" }), h("span", { class: "pill " + (on ? (r.state === "stuck" ? "you" : r.state === "working" ? "work" : "ok") : ""), text: state })),
+    h("p", { class: "muted", text: on
+      ? "Roundtable starts " + x.handle + " by itself whenever it has work, with your own login, and puts it back to sleep when it is done. You don't need a terminal open."
+      : "Let Roundtable start " + x.handle + " by itself whenever it has work, with your own " + (x.app === "codex-cli" ? "Codex" : "Claude Code") + " login. Nothing gets stuck waiting for you to nudge it." }),
+    on && r.message ? h("p", { class: r.state === "stuck" ? "box warn" : "faint", text: capital(plainText(r.message)) + (r.runs ? ` · ${plural(r.runs, "run")} so far` : "") }) : null,
+    !on && r.error ? h("p", { class: "box warn", text: "Last time: " + plainText(r.error) }) : null,
+    h("div", { class: "row" }, on
+      ? h("button", { type: "button", onclick: e => special("stop", { handle: x.handle }, { button: e.currentTarget, title: x.handle + " stopped" }) }, icon("pause", "sm"), "Stop running in the background")
+      : h("button", { class: "go", type: "button", disabled: x.status !== "active" ? true : null, onclick: e => runSeats([x.handle], e.currentTarget) }, icon("play", "sm"), "Run in the background")),
+    h("p", { class: "faint" }, everything ? "It may run any command in its own copy of the project. " : "It may edit files in its own copy of the project, use git and run the project's test commands; other commands are refused. ",
+      h("a", { href: "#/settings", text: "Change this in Settings" }), "."));
+}
+
+const STEP_LABEL = { think: "Thinking", say: "Said", run: "Ran", edit: "Edited", read: "Read", tool: "Roundtable", done: "Finished", error: "Problem", start: "Started" };
+
+function liveList(x, data) {
+  if (!data) return h("p", { class: "muted", text: "Loading…" });
+  if (!data.items || !data.items.length) return h("p", { class: "muted", text: running(x) || x.can_run
+    ? "Nothing yet. When it works, its thinking, commands and edits show up here as they happen."
+    : "This app doesn't share what it is doing. Open it to watch." });
+  const items = data.items.slice().reverse();
+  return h("div", { class: "stack tight" },
+    h("p", { class: "faint", text: `From ${data.source}${data.stale ? ", a while ago" : ""}. Newest first.` }),
+    h("ol", { class: "steps-live plain" }, items.map((it, i) => h("li", { class: "step-" + it.kind },
+      h("span", { class: "k" }, icon((STEP[it.kind] || [0, "dot"])[1], "sm"), STEP_LABEL[it.kind] || it.kind),
+      h("div", { class: "v" }, it.kind === "run" || it.kind === "edit" || it.kind === "read" ? h("code", { text: it.text }) : longText(it.text, `act-${x.handle}-${it.t}-${i}`, "pre", 280),
+        h("span", { class: "faint", text: agoText(it.t) }))))));
+}
+
+function modelForm(x) {
+  const suggestions = (S.models[x.company] || []);
+  const listId = "ai-models-" + x.handle;
+  const model = h("input", { type: "text", id: "ai-model-" + x.handle, "data-k": "ai-model-" + x.handle, value: x.model, list: listId, spellcheck: "false", autocomplete: "off" });
+  const applies = x.can_run ? "Background runs use it from their next start; a terminal you opened needs a restart." : "Takes effect the next time it starts.";
+  return h("div", { class: "stack" },
+    h("div", { class: "field" }, h("label", { for: "ai-model-" + x.handle, text: "Model" }),
+      h("div", { class: "row" }, h("div", { class: "grow" }, model, h("datalist", { id: listId }, suggestions.map(m => h("option", { value: m })))),
+        h("button", { type: "button", onclick: e => { const v = model.value.trim(); if (!v || v === x.model) return; act("seat.set", { handle: x.handle, model: v }, { button: e.currentTarget, title: "Model changed", body: applies }); } }, "Save"))),
+    x.efforts.length ? h("div", { class: "field" }, h("span", { class: "lbl-like", text: "How hard it thinks" }),
+      h("span", { class: "help", text: "More thinking is slower and uses more of your limits, but catches more on hard problems." }),
+      h("div", { class: "seg wrap", role: "group", "aria-label": "How hard it thinks" },
+        [""].concat(x.efforts).map(v => h("button", { type: "button", "aria-pressed": String((x.effort || "") === v),
+          onclick: e => act("seat.set", { handle: x.handle, effort: v || "default" }, { button: e.currentTarget, title: v ? `${x.handle}: ${EFFORT_LABEL[v] || v} thinking` : `${x.handle}: the app's default thinking`, body: applies }) },
+          v ? EFFORT_LABEL[v] || v : "App default"))))
+      : h("p", { class: "faint", text: "Set how hard it thinks in " + x.app_label + " itself." }),
+    h("p", { class: "faint", text: applies }));
+}
 
 /* ---------------------------------------------------------------- add AIs: pick apps, then names */
 
@@ -1469,9 +1648,9 @@ PAGES.history = st => {
 
 /* ---------------------------------------------------------------- settings */
 
-const MAIN_SECTIONS = ["review", "proof", "git", "watch", "usage", "project"];
+const MAIN_SECTIONS = ["runner", "review", "proof", "git", "watch", "usage", "project"];
 const SECTION_LABEL = { project: "Project", review: "Checking each other's work", leases: "File locks", seats: "AIs", proof: "Tests", planning: "Planning", limits: "Limits",
-  git: "Git", watch: "Notifications", usage: "Usage", dashboard: "Dashboard", history: "History" };
+  git: "Git", watch: "Notifications", usage: "Usage", dashboard: "Dashboard", history: "History", runner: "Background runs" };
 const SETTING_TEXT = {
   "project.name": ["Project name", "Shown here and to the AIs."],
   "project.main_branch": ["Branch finished work goes into", "Detected when Roundtable was set up."],
@@ -1488,7 +1667,10 @@ const SETTING_TEXT = {
   "git.auto_merge": ["Merge finished work automatically", "Into your branch, once it passes its tests and is checked."],
   "watch.notify": ["Desktop notifications", "For serious problems and stuck work, while rt watch runs."],
   "usage.warn_percent": ["Warn me at this % of a plan limit", ""],
+  "runner.permissions": ["What an AI running in the background may do", "Its own files, git and the project's test commands; or any command in its own copy of the project."],
+  "runner.max_minutes": ["Stop a background run after (minutes)", "A run that goes on longer is stopped; the AI picks up again at its next run."],
 };
+const CHOICE_TEXT = { "runner.permissions": { edits: "Its own files, git and tests", all: "Any command" } };
 
 PAGES.settings = st => {
   const sections = {};
@@ -1496,7 +1678,8 @@ PAGES.settings = st => {
   const doc = cache.doctor;
   return { title: "Settings", body: [
     h("p", { class: "muted", text: "Changes save at once. The AIs can't change these." }),
-    Object.entries(sections).filter(([k]) => MAIN_SECTIONS.includes(k)).map(([k, items]) => sec(SECTION_LABEL[k] || k, items.map(settingRow))),
+    Object.entries(sections).filter(([k]) => MAIN_SECTIONS.includes(k)).sort((a, b) => MAIN_SECTIONS.indexOf(a[0]) - MAIN_SECTIONS.indexOf(b[0]))
+      .map(([k, items]) => sec(SECTION_LABEL[k] || k, items.map(settingRow))),
     h("details", { class: "section", "data-k": "more-settings" }, h("summary", null, icon("chevron", "sm"), "More: limits, planning, file locks, history"),
       h("div", { class: "stack" }, Object.entries(sections).filter(([k]) => !MAIN_SECTIONS.includes(k)).map(([k, items]) => sec(SECTION_LABEL[k] || k, items.map(settingRow))))),
     sec("Check the setup", h("p", { class: "muted", text: "Looks at git, the AIs' copies of the project, app connections and the commit guard." }),
@@ -1515,7 +1698,7 @@ function settingRow(c) {
   const [label, desc] = SETTING_TEXT[c.key] || [capital(c.key.split(".")[1].replace(/_/g, " ")), c.desc];
   let control;
   if (c.type === "switch") control = h("input", { type: "checkbox", id, checked: c.value, onchange: e => save(e.target.checked ? "true" : "false") });
-  else if (c.type === "choice") control = h("select", { id, onchange: e => save(e.target.value) }, c.choices.map(o => h("option", { value: o, selected: o === c.value ? true : null }, c.key === "review.level" ? CHECKING[o] : o)));
+  else if (c.type === "choice") control = h("select", { id, onchange: e => save(e.target.value) }, c.choices.map(o => h("option", { value: o, selected: o === c.value ? true : null }, c.key === "review.level" ? CHECKING[o] : (CHOICE_TEXT[c.key] || {})[o] || o)));
   else if (c.type === "number") control = h("input", { type: "number", id, "data-k": id, min: "0", value: String(c.value), onchange: e => save(e.target.value) });
   else if (c.type === "list") control = h("input", { type: "text", id, "data-k": id, value: (c.value || []).join(", "), onchange: e => save(JSON.stringify(csv(e.target.value) || [])) });
   else control = h("input", { type: "text", id, "data-k": id, value: c.value, onchange: e => save(e.target.value) });
@@ -1607,17 +1790,20 @@ function welcomeScreen(st) {
       h("button", { class: "ghost", type: "button", onclick: toRoom }, st.seats.length ? "Go to the room" : "Skip for now and look around"))];
   else if (step === 2) main = [
     h("h2", { text: "Start each one" }),
-    h("p", { class: "lead", text: "Each AI works in its own app and its own copy of your project, so your folder is never edited directly. Roundtable opens terminal and editor apps for you, already connected." }),
+    h("p", { class: "lead", text: "Each AI works in its own copy of your project, so your folder is never edited directly. Easiest: let Roundtable run them in the background; it wakes them whenever there is work. Or open each one in a terminal and watch it there." }),
     h("div", null, st.seats.map(x => {
       const info = ui.started[x.handle];
       return h("div", { class: "joinrow" }, avatar(x.handle, "lg"),
         h("div", { class: "who" }, h("strong", { text: x.handle }), h("p", { class: "faint", text: `${prettyModel(x.model)} · ${x.app_label}` }),
           info && !x.joined_ever ? startedBox(x, info) : null),
-        x.joined_ever ? h("span", { class: "pill ok" }, icon("check", "sm"), "At the table")
-          : h("button", { class: info ? "" : "go", type: "button", onclick: e => startSeat(x, e.currentTarget) },
-            icon(x.start.kind === "terminal" ? "terminal" : x.start.kind === "desktop" ? "desktop" : "code", "sm"), info ? "Start again" : startLabel(x)));
+        running(x) ? h("span", { class: "pill ok" }, icon("check", "sm"), "Runs in the background")
+          : x.joined_ever ? h("span", { class: "pill ok" }, icon("check", "sm"), "At the table")
+          : h("div", { class: "row" },
+            x.can_run ? h("button", { class: "go", type: "button", onclick: e => runSeats([x.handle], e.currentTarget) }, icon("play", "sm"), "Run in the background") : null,
+            h("button", { class: x.can_run || info ? "" : "go", type: "button", onclick: e => startSeat(x, e.currentTarget) },
+              icon(x.start.kind === "terminal" ? "terminal" : x.start.kind === "desktop" ? "desktop" : "code", "sm"), x.can_run ? "Open a terminal" : info ? "Start again" : startLabel(x))));
     })),
-    h("p", { class: "faint", text: "When one joins, it shows a tick here. You can also go on now; they catch up when they start." }),
+    h("p", { class: "faint", text: "Background runs use your own Claude Code and Codex logins: sign in to each app once on this computer first. You can also go on now and start them later." }),
     h("div", { class: "row" },
       h("button", { class: "go", type: "button", onclick: () => { ui.wstep = 3; go("#/welcome"); } }, "Next: give them a goal", icon("chevron", "sm")),
       h("button", { class: "ghost", type: "button", onclick: () => { ui.wstep = 1; go("#/welcome"); } }, icon("plus", "sm"), "Add another AI"),
@@ -1668,7 +1854,12 @@ function setupScreen(st) {
 
 applyTheme();
 route = parseRoute();
-window.addEventListener("hashchange", () => { route = parseRoute(); if (taskRoute()) loadTask(taskRoute()).then(render); render(); });
+window.addEventListener("hashchange", () => {
+  route = parseRoute();
+  if (taskRoute()) loadTask(taskRoute()).then(render);
+  if (route.page === "ai" && route.sub) loadActivity(route.sub).then(render);
+  render();
+});
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && DRAWERS.includes(route.page) && S && S.mode === "project" && !inWelcome()) { e.preventDefault(); close(); }
 });

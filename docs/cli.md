@@ -31,6 +31,9 @@ positional arguments:
                   own token cost
     setup         connect an app to this project
     launch        start a seat's app
+    run           run a seat in the background: Roundtable starts its app
+                  whenever it has work
+    bench         does a team do better than one AI? same task, hidden tests
     doctor        check everything and suggest fixes
     watch         notify you and wake seats when needed
     ui            local dashboard in your browser
@@ -49,10 +52,10 @@ options:
 
 commands by purpose:
   start here        ui, init, status, doctor
-  models            seat (add, list, pause, resume, release, remove), launch, setup
+  models            seat (add, set, list, pause, resume, release, remove), launch, run, setup
   plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
   problems          alert, vote, freeze, unfreeze
-  follow along      log, usage, watch, export, compact, config
+  follow along      log, usage, watch, export, compact, config, bench
   for apps          mcp, call
 ```
 
@@ -99,6 +102,7 @@ positional arguments:
   action
     add       register a model as a seat
     list      list seats
+    set       change a seat's model or thinking effort
     pause     pause a seat
     resume    resume a seat
     remove    remove a seat
@@ -112,8 +116,8 @@ options:
 ### rt seat add
 
 ```text
-usage: rt seat add [-h] --model MODEL
-                   --app {claude-code,claude-vscode,claude-app,codex-cli,codex-vscode,codex-app,gemini-cli,qwen-code,opencode,copilot-cli,cursor,other}
+usage: rt seat add [-h] --model MODEL --app
+                   {claude-code,claude-vscode,claude-app,codex-cli,codex-vscode,codex-app,gemini-cli,qwen-code,opencode,copilot-cli,cursor,other}
                    [--company COMPANY] [--roles ROLES] [--no-worktree]
                    handle
 
@@ -145,6 +149,21 @@ usage: rt seat list [-h]
 
 options:
   -h, --help  show this help message and exit
+```
+
+### rt seat set
+
+```text
+usage: rt seat set [-h] [--model MODEL] [--effort EFFORT] handle
+
+positional arguments:
+  handle
+
+options:
+  -h, --help       show this help message and exit
+  --model MODEL
+  --effort EFFORT  claude-code: low|medium|high|xhigh|max; codex-cli:
+                   minimal|low|medium|high|xhigh; default clears it
 ```
 
 ### rt seat pause
@@ -210,7 +229,9 @@ options:
 ## rt goal
 
 ```text
-usage: rt goal [-h] [--planners PLANNERS] [--review {low,mid,high}] goal
+usage: rt goal [-h] [--planners PLANNERS] [--review {low,mid,high}] [--quick]
+               [--auto]
+               goal
 
 positional arguments:
   goal
@@ -219,6 +240,9 @@ options:
   -h, --help            show this help message and exit
   --planners PLANNERS   comma list of seats
   --review {low,mid,high}
+  --quick               skip the planning rounds: one AI splits the goal into
+                        tasks
+  --auto                start building without waiting for your approval
 ```
 
 ## rt plan
@@ -228,14 +252,15 @@ usage: rt plan [-h] action ...
 
 positional arguments:
   action
-    view          show the plan
-    continue      move on without missing drafts/critiques
-    lock          approve the plan; creates tasks
-    cancel        cancel the active plan
-    amend-decide  approve or reject an amendment
+    view        show the plan
+    continue    move on without missing drafts/critiques
+    lock        approve the plan; creates tasks
+    cancel      cancel the active plan
+    amend-decide
+                approve or reject an amendment
 
 options:
-  -h, --help      show this help message and exit
+  -h, --help    show this help message and exit
 ```
 
 ### rt plan view
@@ -300,21 +325,22 @@ usage: rt task [-h] action ...
 
 positional arguments:
   action
-    show          show a task
-    cancel        cancel a task
-    reassign      give a task to another seat
-    merge         retry merges
-    review-level  set one task's review depth
-    list          list tasks, most urgent first
-    file          add work to the backlog (ready at once if you give files and
-                  a test command)
-    accept        turn a backlog item into work
-    edit          change title, kind, priority, labels, summary, files or test
-                  command
-    link          TASK waits_for|related|discovered_from|parent OTHER
+    show        show a task
+    cancel      cancel a task
+    reassign    give a task to another seat
+    merge       retry merges
+    review-level
+                set one task's review depth
+    list        list tasks, most urgent first
+    file        add work to the backlog (ready at once if you give files and a
+                test command)
+    accept      turn a backlog item into work
+    edit        change title, kind, priority, labels, summary, files or test
+                command
+    link        TASK waits_for|related|discovered_from|parent OTHER
 
 options:
-  -h, --help      show this help message and exit
+  -h, --help    show this help message and exit
 ```
 
 ### rt task show
@@ -577,13 +603,14 @@ usage: rt review [-h] action ...
 
 positional arguments:
   action
-    queue         reviews waiting for you
-    get           read a task for review
-    submit        approve or request changes
-    level-decide  approve/deny a deeper-review request
+    queue       reviews waiting for you
+    get         read a task for review
+    submit      approve or request changes
+    level-decide
+                approve/deny a deeper-review request
 
 options:
-  -h, --help      show this help message and exit
+  -h, --help    show this help message and exit
 ```
 
 ### rt review queue
@@ -680,14 +707,15 @@ usage: rt alert [-h] action ...
 
 positional arguments:
   action
-    list       open alerts
-    show       one alert
-    raise      raise an alert yourself
-    resolve    close an alert
-    set-level  change an alert's level
+    list      open alerts
+    show      one alert
+    raise     raise an alert yourself
+    resolve   close an alert
+    set-level
+              change an alert's level
 
 options:
-  -h, --help   show this help message and exit
+  -h, --help  show this help message and exit
 ```
 
 ### rt alert list
@@ -860,6 +888,79 @@ options:
   --print     print the command instead of running it
 ```
 
+## rt run
+
+```text
+usage: rt run [-h] [--once] [--stop] [--detach] handle
+
+positional arguments:
+  handle
+
+options:
+  -h, --help  show this help message and exit
+  --once      do the waiting work once, then stop
+  --stop      stop the seat's background runner
+  --detach    start it as its own process and return
+```
+
+## rt bench
+
+```text
+usage: rt bench [-h] action ...
+
+positional arguments:
+  action
+    list      benchmark tasks
+    run       run each contender on a task, then score them with hidden tests
+    score     score a folder against a task's hidden tests
+
+options:
+  -h, --help  show this help message and exit
+```
+
+### rt bench list
+
+```text
+usage: rt bench list [-h]
+
+options:
+  -h, --help  show this help message and exit
+```
+
+### rt bench run
+
+```text
+usage: rt bench run [-h] [--task TASK] [--solo SOLO] [--team TEAM]
+                    [--mode {quick,full}] [--review {low,mid,high}]
+                    [--minutes MINUTES] [--out OUT]
+
+options:
+  -h, --help            show this help message and exit
+  --task TASK
+  --solo SOLO           an AI alone: claude, codex, claude:high,
+                        codex:gpt-6.1-sol:xhigh (repeatable)
+  --team TEAM           a team, comma separated: claude,codex (repeatable)
+  --mode {quick,full}   how the team plans (default quick)
+  --review {low,mid,high}
+                        how carefully the team checks itself
+  --minutes MINUTES     time limit per contender
+  --out OUT             folder for the work and the report (default
+                        ./roundtable-bench/<time>)
+```
+
+### rt bench score
+
+```text
+usage: rt bench score [-h] [--task TASK] folder
+
+positional arguments:
+  folder
+
+options:
+  -h, --help   show this help message and exit
+  --task TASK
+```
+
 ## rt doctor
 
 ```text
@@ -948,6 +1049,7 @@ options:
 - `seat.release`: Free a seat whose chat was closed, so a new chat can join it
 - `seat.remove`: Remove a seat (history is kept)
 - `seat.resume`: Resume a paused seat
+- `seat.set`: Change a seat's model or how hard it thinks (takes effect the next time it starts)
 - `seat.worktree`: Create (or repair) a seat's working copy
 - `task.accept`: Turn a backlog item into work (its files and test command are final here)
 - `task.cancel`: Cancel a task

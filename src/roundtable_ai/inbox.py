@@ -81,9 +81,11 @@ def _plan_action(ctx, handle: str) -> str | None:
         if handle in planners and not ctx.db.one("SELECT 1 FROM drafts WHERE plan_id = ? AND author = ?", (plan["id"], handle)):
             return "draft the plan"
     elif plan["stage"] == "merging" and plan["chair"] == handle:
-        return "merge the plan (you chair)"
-    elif plan["stage"] == "proposed":
-        if not ctx.db.one(
+        return "split the goal into tasks (quick mode, you plan)" if (plan["mode"] if "mode" in plan.keys() else "full") == "quick" else "merge the plan (you chair)"
+    elif plan["stage"] == "proposed" and plan["chair"] != handle:
+        from .plans import _voters
+
+        if handle in _voters(ctx) and not ctx.db.one(
             "SELECT 1 FROM approvals WHERE plan_id = ? AND version = ? AND seat = ?", (plan["id"], plan["version"], handle)
         ):
             return "approve or object to the plan"

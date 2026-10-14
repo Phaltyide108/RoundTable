@@ -98,6 +98,7 @@ def from_claude_statusline(data: dict) -> dict[str, Any]:
         "context_size": cw.get("context_window_size"),
         "session_tokens": (cw.get("total_input_tokens") or 0) + (cw.get("total_output_tokens") or 0) or None,
         "cost_usd": (data.get("cost") or {}).get("total_cost_usd"),
+        "transcript_path": data.get("transcript_path"),
     }
     for key, name in (("five_hour", "limit_5h"), ("seven_day", "limit_7d")):
         w = rl.get(key) or {}
@@ -124,50 +125,74 @@ def _first_line(path: Path) -> str:
         return fh.readline(2_000_000).decode("utf-8", errors="replace")
 
 
-def from_codex_logs(folder: str | Path, *, max_files: int = 200, max_age_days: int = 8) -> dict[str, Any] | None:
-    """Newest token-count data of the Codex session that ran in `folder`."""
+_session_cache: dict[str, tuple[float, Path | None]] = {}
+
+
+def codex_session_file(folder: str | Path, *, max_files: int = 200, max_age_days: int = 8, refresh: bool = False) -> Path | None:
+    """The newest Codex session log whose working folder is `folder` (cached for 20 seconds)."""
+    key = str(Path(folder).resolve())
+    hit = _session_cache.get(key)
+    if hit and hit[1] is not None and time.time() - hit[0] < 20 and hit[1].exists():
+        return hit[1]
+    if hit and hit[1] is None and time.time() - hit[0] < 10 and not refresh:
+        return None
+    found = None
     root = _codex_home() / "sessions"
-    if not root.is_dir():
-        return None
-    want = str(Path(folder).resolve())
-    cutoff = time.time() - max_age_days * 86400
-    files = []
-    try:
-        for dirpath, _dirs, names in os.walk(root):
-            for n in names:
-                if n.endswith(".jsonl"):
-                    p = Path(dirpath) / n
-                    try:
-                        m = p.stat().st_mtime
-                    except OSError:
-                        continue
-                    if m >= cutoff:
-                        files.append((m, p))
-    except OSError:
-        return None
-    files.sort(reverse=True)
-    for _m, p in files[:max_files]:
+    if root.is_dir():
+        cutoff = time.time() - max_age_days * 86400
+        files = []
         try:
-            meta = json.loads(_first_line(p) or "{}")
-        except ValueError:
-            continue
-        payload = meta.get("payload") or meta
-        cwd = payload.get("cwd") or (payload.get("session_meta") or {}).get("cwd")
-        if not cwd or str(Path(cwd).resolve()) != want:
-            continue
-        for line in reversed(_tail_lines(p)):
-            if "token_count" not in line:
-                continue
+            for dirpath, _dirs, names in os.walk(root):
+                for n in names:
+                    if n.endswith(".jsonl"):
+                        p = Path(dirpath) / n
+                        try:
+                            m = p.stat().st_mtime
+                        except OSError:
+                            continue
+                        if m >= cutoff:
+                            files.append((m, p))
+        except OSError:
+            files = []
+        files.sort(reverse=True)
+        for _m, p in files[:max_files]:
             try:
-                ev = json.loads(line)
+                meta = json.loads(_first_line(p) or "{}")
             except ValueError:
                 continue
-            pl = ev.get("payload") or ev
-            if pl.get("type") != "token_count":
-                continue
-            return _codex_snapshot(pl, p)
-        return {"source": f"codex log {p.name}", "note": "no token counts yet in this session"}
-    return None
+            payload = meta.get("payload") or meta
+            cwd = payload.get("cwd") or (payload.get("session_meta") or {}).get("cwd")
+            if cwd and str(Path(cwd).resolve()) == key:
+                found = p
+                break
+    _session_cache[key] = (time.time(), found)   # a miss is kept 10 s: the dashboard asks every few seconds
+    return found
+
+
+def from_codex_logs(folder: str | Path, *, max_files: int = 200, max_age_days: int = 8) -> dict[str, Any] | None:
+    """Newest token-count data of the Codex session that ran in `folder`."""
+    p = codex_session_file(folder, max_files=max_files, max_age_days=max_age_days)
+    if p is None:
+        return None
+    for line in reversed(_tail_lines(p)):
+        if "token_count" not in line:
+            continue
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        pl = ev.get("payload") or ev
+        if pl.get("type") != "token_count":
+            continue
+        snap = _codex_snapshot(pl, p)
+        when = None
+        try:
+            when = util.parse_time(ev["timestamp"]).timestamp() if ev.get("timestamp") else None
+        except Exception:
+            when = None
+        snap["updated_at"] = when or p.stat().st_mtime
+        return snap
+    return {"source": f"codex log {p.name}", "note": "no token counts yet in this session", "updated_at": p.stat().st_mtime}
 
 
 def _codex_snapshot(pl: dict, path: Path) -> dict[str, Any]:
@@ -194,17 +219,38 @@ def _codex_snapshot(pl: dict, path: Path) -> dict[str, Any]:
 
 
 def seat_snapshot(ctx, row) -> dict[str, Any] | None:
-    if row["app"] == "claude-code":
-        return load_snapshot(ctx.home, row["handle"])
+    """The freshest usage numbers for a seat, with limit windows that have since reset marked as such."""
+    snaps = []
+    own = load_snapshot(ctx.home, row["handle"])   # Claude Code status line, or a background run
+    if own:
+        snaps.append(own)
     if row["app"] in ("codex-cli", "codex-vscode", "codex-app") and row["worktree"]:
         try:
             snap = from_codex_logs(row["worktree"])
         except Exception:
             snap = None
         if snap:
-            snap["updated_at"] = snap.get("updated_at") or time.time()
-        return snap
-    return None
+            snaps.append(snap)
+    if not snaps:
+        return None
+    snap = dict(max(snaps, key=lambda x: float(x.get("updated_at") or 0)))
+    return freshen(snap)
+
+
+def freshen(snap: dict[str, Any], now: float | None = None) -> dict[str, Any]:
+    """A limit window whose reset time has passed no longer holds: its old percentage would mislead."""
+    now = now or time.time()
+    for key in ("limit_5h", "limit_7d"):
+        w = snap.get(key)
+        if not isinstance(w, dict):
+            continue
+        try:
+            resets = float(w.get("resets_at"))
+        except (TypeError, ValueError):
+            continue
+        if resets <= now:
+            snap[key] = {"pct": None, "resets_at": None, "reset": True, "was": w.get("pct")}
+    return snap
 
 
 # ---------------------------------------------------------------- formatting
@@ -239,7 +285,9 @@ def describe(snap: dict | None, *, short: bool = False) -> str:
         parts.append(f"session {int(snap['session_tokens']):,} tokens" if not short else f"{int(snap['session_tokens']) // 1000}k tok")
     for key, label in (("limit_5h", "5h"), ("limit_7d", "7d")):
         w = snap.get(key)
-        if w:
+        if w and w.get("reset"):
+            parts.append(f"{label} reset since" if not short else f"{label} reset")
+        elif w:
             parts.append(f"{label} {_pct(w.get('pct'))}" + ("" if short else f" ({_resets(w.get('resets_at'))})"))
     if snap.get("cost_usd") and not short:
         parts.append(f"~${float(snap['cost_usd']):.2f} at list price")

@@ -42,6 +42,13 @@ APPS: dict[str, App] = {a.key: a for a in (
 # other terminal apps are started plainly in the seat's folder.
 FLAGGED = ("claude-code", "codex-cli")
 
+# How hard each app can make its model think, as Roundtable passes it on start
+# (claude --effort ...; codex -c model_reasoning_effort=...). Other apps: set it in the app.
+EFFORTS: dict[str, tuple[str, ...]] = {
+    "claude-code": ("low", "medium", "high", "xhigh", "max"),
+    "codex-cli": ("minimal", "low", "medium", "high", "xhigh"),
+}
+
 COMPANIES = ("anthropic", "openai", "google", "alibaba", "xai", "meta", "mistral", "deepseek", "other")
 
 # Model names known to work, offered as suggestions (people can type any name their app accepts).
