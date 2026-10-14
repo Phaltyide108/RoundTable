@@ -100,6 +100,10 @@ def do_special(session: Session, kind: str, body: dict) -> dict[str, Any]:
             session.home, session.folder = None, folder
         return {"text": f"{folder} has no Roundtable project yet"}
 
+    if kind == "pick_folder":  # the computer's own folder chooser (the app has no file paths otherwise)
+        start = str(session.folder) if session.folder else None
+        return {"folder": desktop.pick_folder(str(body.get("title") or "Choose your project folder"), start) or ""}
+
     if kind == "close":
         with session.lock:
             session.home = None
@@ -234,6 +238,16 @@ def make_handler(session: Session, token: str, port_ref: dict):
                                                                            task=q.get("task") or None)})
                     finally:
                         ctx.close()
+                if url.path == "/api/council":
+                    ctx = session.open_ctx()
+                    try:
+                        return self._json(200, ui_state.council_detail(ctx, q.get("id", "")))
+                    finally:
+                        ctx.close()
+                if url.path == "/api/models":
+                    from . import models
+
+                    return self._json(200, models.for_app(q.get("app", ""), refresh=q.get("refresh") == "1"))
                 if url.path == "/api/activity":
                     ctx = session.open_ctx()
                     try:

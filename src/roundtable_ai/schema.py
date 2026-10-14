@@ -14,6 +14,45 @@ Task status values (see DESIGN.md for the state machine):
 
 SCHEMA_VERSION = 3
 
+# Ask the table (councils): every chosen AI answers a question on its own, they rank each other's
+# answers without names, and one writes the final answer. Also used for second opinions on failing
+# tasks (kind 'rescue'). Added within schema 3 with CREATE ... IF NOT EXISTS (db._EXTRA_SCHEMA).
+COUNCIL_TABLES = r"""
+CREATE TABLE IF NOT EXISTS councils (
+  id          TEXT PRIMARY KEY,               -- Q1
+  kind        TEXT NOT NULL DEFAULT 'ask',    -- ask | rescue
+  question    TEXT NOT NULL,
+  context     TEXT NOT NULL DEFAULT '',       -- earlier question and answer, for a follow-up; failure details for a rescue
+  task        TEXT,                           -- rescue: the task it helps
+  members     TEXT NOT NULL,                  -- JSON list of seats
+  chair       TEXT,                           -- the seat that writes the final answer
+  stage       TEXT NOT NULL,                  -- answering | ranking | combining | done | failed | cancelled
+  final       TEXT,
+  ranking     TEXT,                           -- JSON [{"seat", "label", "avg", "firsts"}] best first
+  workdir     TEXT,
+  error       TEXT,
+  pid         INTEGER,
+  asked_by    TEXT NOT NULL DEFAULT 'human',
+  created_at  TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS council_parts (
+  council     TEXT NOT NULL,
+  seat        TEXT NOT NULL,
+  stage       TEXT NOT NULL,                  -- answer | rank | final
+  label       TEXT,                           -- answer: A, B, C as the others see it
+  text        TEXT NOT NULL DEFAULT '',
+  ranking     TEXT,                           -- rank: JSON list of labels, best first
+  status      TEXT NOT NULL DEFAULT 'running',-- running | done | failed
+  error       TEXT,
+  tokens      INTEGER NOT NULL DEFAULT 0,
+  seconds     REAL,
+  started_at  TEXT,
+  finished_at TEXT,
+  PRIMARY KEY (council, seat, stage)
+);
+"""
+
 # Version 3 (Roundtable 0.3): how hard each seat thinks, and plan modes.
 MIGRATION_2_TO_3 = r"""
 ALTER TABLE seats ADD COLUMN effort TEXT;                            -- low | medium | high | xhigh | max (NULL: the app's default)

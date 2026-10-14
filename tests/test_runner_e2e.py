@@ -230,3 +230,16 @@ def test_benchmark_task_is_well_formed():
     ref = Path(__file__).with_name("bench_reference")
     sc = bench.score("sheet", ref)
     assert sc["passed"] == sc["total"] == bench.count_hidden("sheet") >= 50, sc
+
+
+def test_sql_task_hidden_tests_agree_with_sqlite_and_forbid_it():
+    from roundtable_ai import bench
+
+    ref = Path(__file__).with_name("bench_reference")
+    assert "sql" in bench.tasks() and bench.meta("sql")["module"] == "minisql.py"
+    assert bench.count_hidden("sql") >= 100
+    sc = bench.score("sql", ref, check_forbidden=False)          # SQLite itself passes every hidden test
+    assert sc["passed"] == sc["total"] == bench.count_hidden("sql"), sc["failed"][:5]
+    banned = bench.score("sql", ref)                              # ...but a contender may not hand the work to SQLite
+    assert banned["passed"] == 0 and "sqlite3" in banned["failed"][0]
+    assert "python" in bench._test_command()

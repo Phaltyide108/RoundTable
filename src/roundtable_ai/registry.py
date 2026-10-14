@@ -178,4 +178,5 @@ MODULES = (
     "admin",
     "usage",
     "memory",
+    "council",
 )

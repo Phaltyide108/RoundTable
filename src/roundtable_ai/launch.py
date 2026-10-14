@@ -26,6 +26,7 @@ from .errors import CONFLICT, INVALID, NOT_FOUND, STATE, RTError
 INSTALL_HINT = {
     "claude": "install Claude Code: curl -fsSL https://claude.ai/install.sh | bash (Windows: irm https://claude.ai/install.ps1 | iex), then run `claude` once to sign in",
     "codex": "install Codex CLI: npm install -g @openai/codex, then run `codex` once to sign in",
+    "opencode": "install opencode: npm install -g opencode-ai (its free models need no sign-in)",
 }
 
 
@@ -48,7 +49,7 @@ def statusline_command(handle: str) -> str:
 def _exe(name: str) -> str:
     path = shutil.which(name)
     if not path:
-        raise RTError(NOT_FOUND, f"`{name}` is not installed or not on PATH", INSTALL_HINT[name])
+        raise RTError(NOT_FOUND, f"`{name}` is not installed or not on PATH", INSTALL_HINT.get(name, f"install {name}"))
     return path
 
 

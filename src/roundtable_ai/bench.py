@@ -140,14 +140,48 @@ print(json.dumps({"run": res.testsRun, "failed": failed}))
 '''
 
 
+def meta(task: str) -> dict[str, Any]:
+    """What a task's code is called and which imports it may not use (bench/<task>/meta.json)."""
+    try:
+        data = json.loads((TASKS_DIR / task / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    return {"module": data.get("module") or f"{task}.py", "forbid": list(data.get("forbid") or [])}
+
+
+def forbidden_imports(task: str, folder: Path) -> list[str]:
+    """Modules the task forbids that the contender's code imports anyway (tests/ is not counted)."""
+    names = meta(task)["forbid"]
+    if not names:
+        return []
+    alt = "|".join(re.escape(n) for n in names)
+    pat = re.compile(rf"^\s*(?:import|from)\s+(?:[\w.]+\s*,\s*)*({alt})\b|__import__\(\s*['\"]({alt})['\"]|import_module\(\s*['\"]({alt})['\"]", re.M)
+    found: set[str] = set()
+    for path in Path(folder).rglob("*.py"):
+        rel = path.relative_to(folder).parts
+        if rel[0] in ("tests", "_hidden", ".git", ".roundtable") or "test" in path.name.lower():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in pat.finditer(text):
+            found.add(next(g for g in m.groups() if g))
+    return sorted(found)
+
+
 def count_hidden(task: str) -> int:
     text = (TASKS_DIR / task / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
     return len(re.findall(r"^\s+def test_", text, re.M))
 
 
-def score(task: str, folder: Path, timeout: int = 180) -> dict[str, Any]:
+def score(task: str, folder: Path, timeout: int = 300, *, check_forbidden: bool = True) -> dict[str, Any]:
     """Run the hidden tests against the code in `folder` (never inside it: in a copy)."""
     total = count_hidden(task)
+    if check_forbidden:
+        bad = forbidden_imports(task, Path(folder))
+        if bad:
+            return {"passed": 0, "total": total, "failed": [f"(the code uses {', '.join(bad)}, which the task forbids)"]}
     with tempfile.TemporaryDirectory(prefix="rt-bench-score-") as tmp:
         work = Path(tmp) / "w"
         shutil.copytree(folder, work, ignore=shutil.ignore_patterns(".git", ".roundtable", "__pycache__", "_hidden"))
@@ -167,7 +201,7 @@ def score(task: str, folder: Path, timeout: int = 180) -> dict[str, Any]:
             return {"passed": 0, "total": total, "failed": ["(could not run: " + (out.stderr.strip().splitlines() or ["?"])[-1][:200] + ")"]}
     failed = data["failed"]
     if any(f.startswith("_FailedTest") or "_FailedTest" in f for f in failed):
-        return {"passed": 0, "total": total, "failed": ["(the code could not be imported: sheet.py is missing or broken)"]}
+        return {"passed": 0, "total": total, "failed": [f"(the code could not be imported: {meta(task)['module']} is missing or broken)"]}
     return {"passed": max(0, data["run"] - len(failed)), "total": max(total, data["run"]), "failed": failed}
 
 

@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = seat.add_parser("set", help="change a seat's model or thinking effort")
     s.add_argument("handle")
     s.add_argument("--model")
-    s.add_argument("--effort", help="claude-code: low|medium|high|xhigh|max; codex-cli: minimal|low|medium|high|xhigh; default clears it")
+    s.add_argument("--effort", help="claude-code: low|medium|high|xhigh|max; codex-cli: minimal|low|medium|high|xhigh|max|ultra; opencode: the model's variants; default clears it")
     for name, hlp in (("pause", "pause a seat"), ("resume", "resume a seat"), ("remove", "remove a seat"),
                       ("release", "free a seat whose chat was closed"), ("worktree", "create or repair its working copy")):
         seat.add_parser(name, help=hlp).add_argument("handle")
@@ -304,6 +304,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("watch", help="notify you and wake seats when needed")
     s.add_argument("--once", action="store_true")
     s.add_argument("--interval", type=int, default=15)
+    s = sub.add_parser("ask", help="ask the table: every AI answers, they rank each other's answers without names, the best writes the final answer")
+    s.add_argument("question", nargs="?", help="what you want to know (the AIs can read the project but change nothing)")
+    s.add_argument("--seats", help="comma list of who answers (default: every AI Roundtable can run)")
+    s.add_argument("--follow-up", help="the id of an earlier question this one follows, e.g. Q2")
+    s.add_argument("--no-wait", action="store_true", help="start it and return; see it later with rt ask --show Q1")
+    s.add_argument("--show", metavar="ID", help="show a question: the final answer and how they ranked each other")
+    s.add_argument("--all", action="store_true", help="with --show: every answer and review in full")
+    s.add_argument("--list", action="store_true", help="questions asked so far")
+    s.add_argument("--cancel", metavar="ID", help="stop a question that is still being answered")
     s = sub.add_parser("app", help="open Roundtable in its own window (--install adds it to your app menu)")
     s.add_argument("--port", type=int)
     s.add_argument("--browser", action="store_true", help="open it in your web browser instead of its own window")
@@ -469,6 +478,57 @@ def _print(result_text: str, data: dict | None, as_json: bool) -> None:
         print(result_text)
 
 
+def _ask(args) -> int:
+    """rt ask: start a council and (by default) follow it until the final answer is in."""
+    import time
+
+    from . import dispatch
+
+    def call(op, **params):
+        return dispatch.call(op, {k: v for k, v in params.items() if v is not None}, home=args.home, as_human=True, client="cli")
+
+    try:
+        if args.list:
+            print(call("council.list").text)
+            return 0
+        if args.show:
+            print(call("council.show", id=args.show, all=bool(args.all)).text)
+            return 0
+        if args.cancel:
+            print(call("council.cancel", id=args.cancel).text)
+            return 0
+        if not args.question:
+            print('ask a question: rt ask "why is the login slow?"   (rt ask --list shows earlier ones)')
+            return 2
+        res = call("council.ask", question=args.question, seats=args.seats, follow_up=args.follow_up)
+        print(res.text)
+        cid = res.data["id"]
+        if args.no_wait:
+            print(f"see it later: rt ask --show {cid}")
+            return 0
+        said: set[str] = set()
+        while True:
+            d = call("council.show", id=cid).data["council"]
+            for p in d["parts"]:
+                key = f"{p['seat']}:{p['stage']}:{p['status']}"
+                if p["status"] != "running" and key not in said:
+                    said.add(key)
+                    verb = {"answer": "answered", "rank": "ranked the answers", "final": "wrote the final answer"}[p["stage"]]
+                    print(f"  {p['seat']} {verb}" if p["status"] == "done" else f"  {p['seat']} could not ({p['stage']}): {p['error']}", flush=True)
+            if d["stage"] in ("done", "failed", "cancelled"):
+                break
+            time.sleep(2)
+        print()
+        print(call("council.show", id=cid).text)
+        return 0 if d["stage"] == "done" else 1
+    except RTError as exc:
+        print(f"error [{exc.code}]: {exc.message}" + (f"\nnext: {exc.hint}" if exc.hint else ""), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nstopped following; the AIs carry on. See it with: rt ask --list")
+        return 130
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -480,6 +540,10 @@ def main(argv: list[str] | None = None) -> int:
         from .usage import statusline_main
 
         return statusline_main(argv[1:])
+    if "_council" in argv[:3]:
+        from .council import main as council_main
+
+        return council_main([a for a in argv if a != "_council"])
     if argv[:1] == ["_proofrun"]:
         from .proofrun import main as pr_main
 
@@ -572,6 +636,8 @@ def _run(args) -> int:
         from .watch import watch
 
         return watch(args.home, once=args.once, interval=args.interval)
+    if args.cmd == "ask":
+        return _ask(args)
     if args.cmd == "app" and (args.install or args.uninstall):
         from . import window
 

@@ -203,6 +203,57 @@ def from_codex_exec(ev: dict, root: str | None = None) -> list[dict]:
     return []
 
 
+# ---------------------------------------------------------------- opencode (run --format json)
+
+def from_opencode(ev: dict, root: str | None = None) -> list[dict]:
+    """One line of `opencode run --format json` -> items. Lines look like
+    {"type": "tool_use" | "text" | "reasoning" | "step_start" | "step_finish" | "error", "timestamp": ms, "sessionID": ..., "part": {...}}"""
+    t = ev.get("type")
+    part = ev.get("part") if isinstance(ev.get("part"), dict) else {}
+    out: list[dict] = []
+    if t == "text" and str(part.get("text") or "").strip():
+        out.append({"kind": "say", "text": _clip(part["text"])})
+    elif t == "reasoning" and str(part.get("text") or "").strip():
+        out.append({"kind": "think", "text": _clip(part["text"])})
+    elif t == "error":
+        err = ev.get("error") if isinstance(ev.get("error"), dict) else {}
+        data = err.get("data") if isinstance(err.get("data"), dict) else {}
+        out.append({"kind": "error", "text": _clip(data.get("message") or err.get("name") or "the run failed", 400)})
+    elif t == "tool_use":
+        state = part.get("state") if isinstance(part.get("state"), dict) else {}
+        if state.get("status") == "error":
+            out.append({"kind": "error", "text": _clip(_error_line(state.get("error")), 300)})
+        else:
+            out.append(_opencode_tool(str(part.get("tool") or ""), state.get("input") or {}, root))
+    when = _ts(ev.get("timestamp") / 1000 if isinstance(ev.get("timestamp"), (int, float)) else None)
+    for item in out:
+        if when:
+            item["t"] = when
+    return out
+
+
+def _opencode_tool(tool: str, inp: Any, root: str | None) -> dict:
+    inp = inp if isinstance(inp, dict) else {}
+    name = tool.lower()
+    if name == "bash":
+        return {"kind": "run", "text": _clip(inp.get("command"), 600)}
+    if name in ("edit", "write", "patch", "multiedit", "apply_patch"):
+        return {"kind": "edit", "text": _short_path(inp.get("filePath") or inp.get("file_path") or inp.get("path") or "files", root)}
+    if name == "read":
+        return {"kind": "read", "text": _short_path(inp.get("filePath") or inp.get("file_path"), root)}
+    if name in ("glob", "grep", "list"):
+        return {"kind": "read", "text": f"search {inp.get('pattern') or inp.get('path') or ''}".strip()}
+    if name in ("todowrite", "todoread"):
+        return {"kind": "think", "text": "updating its to-do list"}
+    if name in ("webfetch", "websearch"):
+        return {"kind": "read", "text": f"{name}: {inp.get('url') or inp.get('query') or ''}"}
+    if "rt_" in name:
+        tool_name = name[name.index("rt_"):]
+        bits = [str(inp.get(k)) for k in ("action", "task", "draft", "id") if inp.get(k)]
+        return {"kind": "tool", "text": " ".join([tool_name, *bits])}
+    return {"kind": "tool", "text": tool or "tool"}
+
+
 def _mcp_args(args: Any) -> str:
     if isinstance(args, str):
         try:

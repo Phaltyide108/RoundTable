@@ -327,7 +327,8 @@ def _events(ctx, limit: int = 80, before: int | None = None, query: str | None =
 
 
 def build(ctx) -> dict[str, Any]:
-    from . import appsetup, gitops, usage
+    from . import appsetup, council, gitops, usage
+    from .paths import recent_projects
 
     seats = _seats(ctx)
     plan = _plan(ctx)
@@ -360,10 +361,17 @@ def build(ctx) -> dict[str, Any]:
         "reviews": reviews_for_you, "level_requests": level_requests, "needs": needs,
         "getting_started": _getting_started(seats, plan, tasks),
         "events": _events(ctx), "config": _config(ctx),
+        "councils": council.summary(ctx), "can_ask": [r["handle"] for r in council.eligible(ctx)], "recent": recent_projects(),
         "overhead_tokens": usage.tool_overhead_tokens(),
         "counts": {"needs": sum(1 for n in needs if n["tone"] in ("decide", "stop", "warn")), "alerts": len(alerts),
                    "reviews": len(reviews_for_you) + len(level_requests), "backlog": sum(1 for t in tasks if t["status"] == "backlog")},
     }
+
+
+def council_detail(ctx, cid: str) -> dict[str, Any]:
+    from . import council
+
+    return council.detail(ctx, cid)
 
 
 def seat_activity(ctx, handle: str, n: int = 80) -> dict[str, Any]:

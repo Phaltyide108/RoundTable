@@ -16,10 +16,11 @@ const TOASTS = document.getElementById("toasts");
 let S = null;            // last state from the server
 let lastJSON = "";
 let route = { page: "room", parts: [], sub: "" };
-const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false, activity: {} };
+const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: [], olderDone: false, activity: {}, council: {}, models: {} };
 const ui = {
   mode: "note", level: null, allAsks: false, started: {}, preview: {}, confirm: {}, pick: {}, wstep: 0,
   accepting: {}, editOpen: false, linkOpen: false, cancelPlan: false, showDone: false, adding: false,
+  compose: "goal", askSkip: {}, followUp: null, modelOpen: null, freeOnly: false,
 };
 const PAGES = {};
 
@@ -111,10 +112,11 @@ const APP_GROUPS = [
 const APP_NAMES = {
   "claude-code": ["Claude Code", "Anthropic, in a terminal"], "claude-vscode": ["Claude Code", "Anthropic, in VS Code"], "claude-app": ["Claude app", "Plans and checks; can't edit files"],
   "codex-cli": ["Codex", "OpenAI, in a terminal"], "codex-vscode": ["Codex", "OpenAI, in VS Code"], "codex-app": ["ChatGPT app", "OpenAI, Codex mode"],
-  "gemini-cli": ["Gemini CLI", "Google"], "qwen-code": ["Qwen Code", "Alibaba"], "opencode": ["opencode", "Any model"],
+  "gemini-cli": ["Gemini CLI", "Google"], "qwen-code": ["Qwen Code", "Alibaba"], "opencode": ["opencode", "75+ models, some free"],
   "copilot-cli": ["Copilot CLI", "GitHub"], "cursor": ["Cursor", "Any model"], "other": ["Another app", "With MCP support"],
 };
 const SUGGESTED = ["claude-code", "codex-cli"];
+const RUNS_ITSELF = ["claude-code", "codex-cli", "opencode"];
 const groupOf = a => a.start === "vscode" || a.start === "editor" ? "editor" : a.start;
 
 function seatOf(handle) { return S && S.seats ? S.seats.find(x => x.handle === handle) : null; }
@@ -146,11 +148,94 @@ function linkify(text) {
   return out;
 }
 
+/* Markdown the AIs write (answers, diagnoses), turned into DOM nodes: never HTML from the text itself. */
+const MD_BLOCK = /^(```|#{1,4}\s|>\s?|\s*(?:[-*+]|\d+[.)])\s+|\s*\|.*\|\s*$)/;
+function md(text) {
+  const root = h("div", { class: "md" });
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      root.append(h("pre", null, h("code", { text: buf.join("\n") })));
+      continue;
+    }
+    const hm = line.match(/^(#{1,4})\s+(.*)$/);
+    if (hm) { root.append(h("h" + Math.min(6, hm[1].length + 2), null, inline(hm[2]))); i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(lines[i++]);
+      const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      const body = rows.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r));
+      root.append(h("div", { class: "md-table" }, h("table", null, body.map((r, k) => h("tr", null, cells(r).map(c => h(k ? "td" : "th", null, inline(c))))))));
+      continue;
+    }
+    if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line)) {
+      const ordered = /^\s*\d+[.)]\s+/.test(line);
+      const list = h(ordered ? "ol" : "ul");
+      while (i < lines.length && /^\s*(?:[-*+]|\d+[.)])\s+/.test(lines[i])) {
+        let item = lines[i].replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "");
+        i++;
+        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*(?:[-*+]|\d+[.)])\s+/.test(lines[i])) item += " " + lines[i++].trim();
+        list.append(h("li", null, inline(item)));
+      }
+      root.append(list);
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ""));
+      root.append(h("blockquote", null, inline(buf.join(" "))));
+      continue;
+    }
+    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { root.append(h("hr")); i++; continue; }
+    if (!line.trim()) { i++; continue; }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !MD_BLOCK.test(lines[i])) buf.push(lines[i++]);
+    if (!buf.length) buf.push(lines[i++]);
+    root.append(h("p", null, inline(buf.join("\n"))));
+  }
+  return root;
+}
+
+function inline(text) {
+  const out = [];
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))|\b(T\d+)\b/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m[1]) out.push(h("code", { text: m[1].slice(1, -1) }));
+    else if (m[2]) out.push(h("strong", { text: m[2].slice(2, -2) }));
+    else if (m[3]) out.push(h("em", { text: m[3].slice(1, -1) }));
+    else if (m[4]) out.push(h("a", { href: m[5], target: "_blank", rel: "noopener noreferrer", text: m[4].slice(1, m[4].indexOf("]")) }));
+    else if (m[6]) out.push(h("a", { class: "tid", href: "#/task/" + m[6], text: m[6] }));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out.flatMap(x => typeof x === "string" ? x.split("\n").flatMap((s, k) => k ? [h("br"), s] : [s]) : [x]);
+}
+
+/* Long markdown folds like longText: a few lines and "Read more". */
+function longMd(text, key, limit) {
+  text = String(text || "");
+  const long = text.length > (limit || 700) || text.split("\n").length > 12;
+  const open = expanded.has(key);
+  const body = md(text);
+  if (!long) return body;
+  if (!open) body.classList.add("md-clamp");
+  return h("div", { class: "folded" }, body, h("button", { class: "more-link", type: "button", "aria-expanded": String(open),
+    onclick: () => { if (open) expanded.delete(key); else expanded.add(key); render(); } }, open ? "Show less" : "Read all of it"));
+}
+
 /* ---------------------------------------------------------------- routes */
 
 const ALIAS = { overview: "room", home: "room", inbox: "room", tasks: "room", work: "room", models: "team", memory: "notes",
-  activity: "history", guide: "help", more: "team", reviews: "review" };
-const DRAWERS = ["plan", "task", "review", "ai", "add", "team", "alerts", "found", "settings", "usage", "notes", "help", "history", "switch"];
+  activity: "history", guide: "help", more: "team", reviews: "review", ask: "council", questions: "council" };
+const DRAWERS = ["plan", "task", "review", "ai", "add", "team", "alerts", "found", "settings", "usage", "notes", "help", "history", "switch", "council"];
 
 function parseRoute() {
   const parts = (location.hash || "#/room").replace(/^#\/?/, "").split("/").filter(Boolean).map(x => decodeURIComponent(x));
@@ -245,11 +330,20 @@ async function refresh(force) {
   catch (e) { if (S) toast("Lost contact with the dashboard", "Start it again with: rt ui", { error: true }); return; }
   if (taskRoute()) await loadTask(taskRoute());
   if (route.page === "ai" && route.sub) await loadActivity(route.sub);
-  const json = JSON.stringify(next) + JSON.stringify(cache.task[taskRoute()] || null) + (route.page === "ai" ? JSON.stringify(cache.activity[route.sub] || null) : "");
+  if (route.page === "council" && route.sub) await loadCouncil(route.sub, next);
+  const json = JSON.stringify(next) + JSON.stringify(cache.task[taskRoute()] || null) + (route.page === "ai" ? JSON.stringify(cache.activity[route.sub] || null) : "")
+    + (route.page === "council" ? JSON.stringify(cache.council[route.sub] || null) : "");
   if (!force && json === lastJSON) return;
   lastJSON = json;
   S = next;
   render();
+}
+
+async function loadCouncil(id, st) {
+  const known = cache.council[id];
+  const live = ((st || S || {}).councils || []).find(c => c.id === id);
+  if (known && known.stage && ["done", "failed", "cancelled"].includes(known.stage) && (!live || live.stage === known.stage)) return;
+  try { cache.council[id] = await getJSON("/api/council?id=" + encodeURIComponent(id)); } catch (e) { /* shown as loading */ }
 }
 
 async function loadActivity(handle) {
@@ -268,7 +362,7 @@ function snapshot() {
   const out = { fields: {}, focus: null, open: {}, scroll: {}, win: window.scrollY };
   APP.querySelectorAll("[data-k]").forEach(el => {
     if (el.tagName === "DETAILS") { out.open[el.dataset.k] = el.open; return; }
-    out.fields[el.dataset.k] = el.type === "checkbox" || el.type === "radio" ? { checked: el.checked } : { value: el.value };
+    out.fields[el.dataset.k] = el.type === "checkbox" || el.type === "radio" ? { checked: el.checked } : { value: el.value, def: el.dataset.def };
   });
   SCROLLERS.forEach(sel => {
     const el = APP.querySelector(sel);
@@ -285,7 +379,8 @@ function restore(snap, samePage) {
     if (el.tagName === "DETAILS") { if (el.dataset.k in snap.open) el.open = snap.open[el.dataset.k]; return; }
     const f = snap.fields[el.dataset.k];
     if (!f) return;
-    if ("checked" in f) el.checked = f.checked; else el.value = f.value;
+    if ("checked" in f) el.checked = f.checked;
+    else if (!(f.def !== undefined && f.value === f.def && el.dataset.def !== undefined)) el.value = f.value;   // untouched: take the new default
     if (el.tagName === "TEXTAREA" && el.classList.contains("grow")) autosize(el);
   });
   // the conversation keeps its place whatever opens over it, and follows new messages when you are at the bottom
@@ -317,6 +412,8 @@ function render() {
   const freshDrawer = drawerKey && drawerKey !== drawerShown;
   drawerShown = drawerKey;
   APP.replaceChildren(view === "setup" ? setupScreen(S) : view === "welcome" ? welcomeScreen(S) : roomView(freshDrawer));
+  const title = S.mode === "project" && S.project ? S.project.name + " · Roundtable" : "Roundtable";
+  if (document.title !== title) document.title = title;
   restore(snap, same);
   if (!same) {
     const target = APP.querySelector(".drawer h1") || (view !== "room" ? APP.querySelector("h1, h2") : null);
@@ -575,6 +672,9 @@ function say(e) {
     case "human.freeze": return { marker: "You paused every AI.", icon: "pause" };
     case "human.unfreeze": return { marker: "You let the AIs work again.", icon: "play" };
     case "human.compact": return null;
+    case "council.asked": return { council: rest(t, /^(Q\d+)/), actor: "human", text: "Asked the table: " + (rest(t, /^Q\d+: (.*?) · asked/) || t) };
+    case "council.rescue": return { council: rest(t, /\((Q\d+)\)\s*$/), actor: "system", text: plainText(t) };
+    case "council.ranking": case "council.combining": case "council.done": case "council.failed": case "council.cancelled": return null;
     case "suggestion.sent": return { text: plainText(t), tone: "quiet" };
     case "suggestion.replied": return { text: plainText(t), tone: "quiet" };
     default: {
@@ -640,6 +740,11 @@ function feedView() {
       cur = null;
       return;
     }
+    if (m.council) {
+      inner.append(councilCard(m.council, e, m.text));
+      cur = null;
+      return;
+    }
     const actor = m.actor || e.actor;
     const line = longText(m.text, "ev" + e.id, "line" + (m.tone ? " " + m.tone : ""));
     if (cur && cur.actor === actor && cur.count < 10) { cur.lines.append(line); cur.count++; return; }
@@ -683,6 +788,80 @@ function introCard() {
   ];
   return h("section", { class: "intro" }, h("h2", { text: "How this room works" }),
     h("ol", null, steps.map(([a, b]) => h("li", null, h("strong", { text: a }), h("span", { text: b })))));
+}
+
+/* ---------------------------------------------------------------- asking the table */
+
+function councilOf(id) { return (S.councils || []).find(c => c.id === id) || null; }
+
+function memberState(c, m) {
+  const failedHere = m.error && [m.answer, m.rank, m.final].includes("failed");
+  if (failedHere && (m.answer === "failed" || c.stage !== "answering")) return ["Couldn't: " + fit(plainText(m.error), 90), "bad"];
+  if (c.stage === "answering") return m.answer === "done" ? ["Answered", "good"] : ["Answering", "busy"];
+  if (c.stage === "ranking") return m.answer !== "done" ? ["No answer", "quiet"] : m.rank === "done" ? ["Ranked the answers", "good"] : ["Ranking the answers", "busy"];
+  if (c.stage === "combining") return c.chair === m.seat ? ["Writing the final answer", "busy"] : ["Done", "quiet"];
+  if (c.stage === "done") return c.chair === m.seat ? [c.kind === "rescue" ? "Sent its diagnosis" : "Wrote the final answer", "good"]
+    : m.answer === "done" ? ["Answered and ranked", "quiet"] : ["No answer", "quiet"];
+  return [capital(c.stage), "quiet"];
+}
+
+function placeOf(c, seat) {
+  const i = (c.ranking || []).findIndex(r => r.seat === seat);
+  return i < 0 ? null : i + 1;
+}
+
+function councilCard(id, e, fallback) {
+  const c = councilOf(id);
+  const rescue = (c && c.kind === "rescue") || (e && e.type === "council.rescue");
+  const head = h("div", { class: "council-head" }, h("span", { class: "council-mark", "aria-hidden": "true" }, icon(rescue ? "review" : "ask", "sm")),
+    h("strong", { text: rescue ? `Second opinion${c && c.task ? " on " + c.task : ""}` : "You asked the table" }),
+    c && !["done"].includes(c.stage) ? h("span", { class: "pill " + (c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "" : "work"),
+      text: { answering: rescue ? "Looking" : "Answering", ranking: "Ranking", combining: "Combining", failed: "Couldn't answer", cancelled: "Stopped" }[c.stage] || c.stage }) : null,
+    e ? h("time", { text: e.at }) : null);
+  if (!c) return h("article", { class: "council" }, head, h("p", { class: "muted", text: fallback || id }),
+    h("div", { class: "row" }, h("button", { class: "small", type: "button", onclick: () => go("#/council/" + id) }, "Open it")));
+  const members = h("ul", { class: "council-members plain" }, c.members.map(m => {
+    const [txt, tone] = memberState(c, m);
+    const place = c.stage === "done" && c.ranking.length > 1 ? placeOf(c, m.seat) : null;
+    return h("li", { class: "cm " + tone }, avatar(m.seat, "sm", true), h("strong", { text: m.seat }),
+      h("span", { class: "cm-state" }, txt, tone === "busy" ? h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")) : null),
+      place ? h("span", { class: "place p" + place, title: `The others ranked its answer #${place}` }, "#" + place) : null);
+  }));
+  const kids = [head, rescue ? null : h("div", { class: "council-q" }, longText(c.question, "cq-" + id, "", 260)), members];
+  if (c.final) {
+    const by = c.chair ? (rescue ? `${c.chair}'s diagnosis` : c.ranking.length > 1 && placeOf(c, c.chair) === 1
+      ? `The table's answer, written by ${c.chair}, whose answer the others ranked best` : `The table's answer, written by ${c.chair}`) : "The answer";
+    kids.push(h("div", { class: "council-final" }, h("p", { class: "council-by", text: by }),
+      longMd(c.final + (c.final_long ? "\n\n…" : ""), "cf-" + id, 900)));
+  }
+  if (c.stage === "failed" && c.error) kids.push(h("p", { class: "bad-text", text: plainText(c.error) }));
+  const actions = [h("button", { class: "small", type: "button", onclick: () => go("#/council/" + id) }, icon("review", "sm"), c.stage === "done" ? "See every answer" : "Watch it")];
+  if (c.stage === "done" && !rescue) actions.push(
+    h("button", { class: "small", type: "button", onclick: () => askFollowUp(c) }, icon("ask", "sm"), "Ask a follow-up"),
+    h("button", { class: "small", type: "button", onclick: () => buildFrom(c) }, icon("plan", "sm"), "Build this"));
+  kids.push(h("div", { class: "row" }, actions));
+  return h("article", { class: "council" + (rescue ? " rescue" : "") + " st-" + c.stage }, kids);
+}
+
+function askFollowUp(c) {
+  ui.compose = "ask";
+  ui.followUp = c.id;
+  close();
+  render();
+  const el = APP.querySelector("#composer-text");
+  if (el) el.focus();
+}
+
+function buildFrom(c) {
+  ui.compose = "goal";
+  close();
+  render();
+  const el = APP.querySelector("#composer-text");
+  if (!el) return;
+  el.value = `${c.question}\n\nWhat the AIs agreed on (from ${c.id}):\n${(c.final || "").slice(0, 3200)}`;
+  autosize(el);
+  el.focus();
+  toast("The answer is in the message box", "Edit it into the goal you want, then choose Plan together or Just do it.");
 }
 
 /* ---------------------------------------------------------------- what waits for you */
@@ -795,6 +974,9 @@ const MODES = {
     hint: "The AIs working nearby must acknowledge it before they take new work.", send: "Report" },
   task: { label: "Add a task", placeholder: "What needs doing?",
     hint: "It waits in your list until you add the files it may change and a test command.", send: "Add" },
+  ask: { label: "Ask the table", placeholder: "Ask them anything, like “What is the riskiest part of this code, and why?”", send: "Ask",
+    tip: "Every AI answers on its own, they rank each other's answers without names, and the best one writes the final answer.",
+    hint: "Each AI answers on its own, then they rank each other's answers without knowing who wrote which, and the best one writes the final answer. They can read your project but change nothing." },
 };
 
 function composer() {
@@ -802,41 +984,57 @@ function composer() {
   if (!S.seats.length) return h("footer", { class: "composer" }, h("div", { class: "composer-inner" },
     h("div", { class: "box off" }, h("p", { class: "muted", text: "Add your AIs first. Then you'll give them a goal here." }),
       h("button", { class: "go", type: "button", onclick: () => go("#/welcome") }, icon("plus", "sm"), "Add your AIs"))));
-  const mode = !isLivePlan(p) ? "goal" : ["note", "problem", "task"].includes(ui.mode) ? ui.mode : "note";
+  const live = isLivePlan(p);
+  const mode = ui.compose === "ask" ? "ask" : !live ? "goal" : ["note", "problem", "task"].includes(ui.compose) ? ui.compose : "note";
   const quick = ui.planMode === "quick";
   const M = mode === "goal" && quick ? Object.assign({}, MODES.goal, QUICK) : MODES[mode];
   const level = ui.level || S.project.review || "mid";
+  const askers = (S.can_ask || []).filter(hd => !ui.askSkip[hd]);
   const ta = h("textarea", { id: "composer-text", class: "grow", "data-k": "composer-" + mode, rows: "1", placeholder: M.placeholder, "aria-label": mode === "goal" ? "The goal" : M.label,
     oninput: e => autosize(e.target),
     onkeydown: e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(sendBtn); } } });
   const sendBtn = h("button", { class: "go send", type: "button", title: M.send, "aria-label": M.send, onclick: e => send(e.currentTarget) },
-    icon("send"), mode === "goal" ? h("span", { text: M.send }) : null);
+    icon(mode === "ask" ? "ask" : "send"), mode === "goal" || mode === "ask" ? h("span", { text: M.send }) : null);
   async function send(btn) {
     const text = ta.value.trim();
-    if (!text) { ta.focus(); toast(mode === "goal" ? "Write the goal first" : "Write something first", mode === "goal" ? "One or two sentences is enough." : ""); return; }
+    if (!text) { ta.focus(); toast(mode === "goal" ? "Write the goal first" : mode === "ask" ? "Write your question first" : "Write something first", mode === "goal" ? "One or two sentences is enough." : ""); return; }
     const first = text.split("\n")[0].trim(), more = text.split("\n").slice(1).join("\n").trim() || null;
     const clear = () => { ta.value = ""; };
-    if (mode === "goal") await act("plan.goal", { goal: text, review: level, mode: quick ? "quick" : "full", auto: !!ui.autoLock },
+    if (mode === "ask") {
+      if (!askers.length) { toast("Nobody can answer yet", "Only AIs in Claude Code, Codex or opencode can answer here. Add one, or tick one above."); return; }
+      await act("council.ask", { question: text, seats: askers, follow_up: ui.followUp || null }, { button: btn, title: "Asked the table",
+        body: askers.length > 1 ? "Each AI answers on its own first, then they rank each other's answers. Watch it in the conversation." : "One AI answers. Add more AIs for a real council.",
+        after: () => { clear(); ui.followUp = null; } });
+    } else if (mode === "goal") await act("plan.goal", { goal: text, review: level, mode: quick ? "quick" : "full", auto: !!ui.autoLock },
       { button: btn, title: quick ? "On it" : "Planning started", body: quick ? "One AI is splitting it into tasks now" + (ui.autoLock ? "; work starts without asking you." : "; you approve the tasks before work starts.")
         : "Each AI now writes its own plan. If one isn't running, start it and it catches up.", after: clear });
     else if (mode === "note") await act("memory.add", { text }, { button: btn, title: "Sent to your AIs", body: "Saved as a note. Every AI reads it the next time it checks in.", after: clear });
     else if (mode === "problem") await act("alert.raise", { level: 3, title: fit(first, 140), description: more }, { button: btn, title: "Your AIs have been told", body: "The AIs working nearby must acknowledge it before they take new work.", after: clear });
     else await act("task.file", { title: fit(first, 140), summary: more }, { button: btn, title: "Task added", body: "It waits above the message box until you add it to the work.", after: clear });
   }
-  const modes = mode === "goal"
-    ? h("div", { class: "modes" },
-      h("div", { class: "seg", role: "group", "aria-label": "How they work" },
-        [["full", "Plan together", "Each AI writes a plan, they compare notes and agree on one. Best for bigger changes."],
-          ["quick", "Just do it", "One AI splits your message into tasks and they start. Best when you know what you want."]].map(([v, label, tip]) =>
-          h("button", { type: "button", "aria-pressed": String((ui.planMode || "full") === v), title: tip, onclick: () => { ui.planMode = v; render(); } }, label))),
-      h("span", { class: "faint", text: "Checking:" }),
+  const pick = (m, extra) => () => { ui.compose = m; Object.assign(ui, extra || {}); render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); };
+  const kinds = !live
+    ? [["full", "Plan together", "Each AI writes a plan, they compare notes and agree on one. Best for bigger changes.", mode === "goal" && !quick, pick("goal", { planMode: "full" })],
+      ["quick", "Just do it", "One AI splits your message into tasks and they start. Best when you know what you want.", mode === "goal" && quick, pick("goal", { planMode: "quick" })],
+      ["ask", "Ask the table", MODES.ask.tip, mode === "ask", pick("ask")]]
+    : [["note", MODES.note.label, MODES.note.hint, mode === "note", pick("note")], ["ask", "Ask the table", MODES.ask.tip, mode === "ask", pick("ask")],
+      ["problem", MODES.problem.label, MODES.problem.hint, mode === "problem", pick("problem")], ["task", MODES.task.label, MODES.task.hint, mode === "task", pick("task")]];
+  const modes = h("div", { class: "modes" },
+    h("div", { class: "seg", role: "group", "aria-label": live ? "What to send" : "How they work" },
+      kinds.map(([v, label, tip, on, fn]) => h("button", { type: "button", "aria-pressed": String(on), title: tip, class: v === "ask" ? "ask-seg" : null, onclick: fn },
+        v === "ask" ? icon("ask", "sm") : null, label))),
+    mode === "goal" ? [h("span", { class: "faint", text: "Checking:" }),
       h("div", { class: "seg", role: "group", "aria-label": "How carefully they check each other's work" },
         ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v]))),
       h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
-        h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" })))
-    : h("div", { class: "modes" }, h("div", { class: "seg", role: "group", "aria-label": "What to send" },
-      ["note", "problem", "task"].map(m => h("button", { type: "button", "aria-pressed": String(m === mode), onclick: () => { ui.mode = m; render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); } }, MODES[m].label))));
-  return h("footer", { class: "composer" }, h("div", { class: "composer-inner" }, modes,
+        h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" }))] : null);
+  const who = mode === "ask" ? h("div", { class: "askers" },
+    h("span", { class: "faint", text: (S.can_ask || []).length ? "Who answers:" : "Only AIs in Claude Code, Codex or opencode can answer here." }),
+    (S.can_ask || []).map(hd => h("button", { type: "button", class: "chip", "aria-pressed": String(!ui.askSkip[hd]), title: prettyModel((seatOf(hd) || {}).model),
+      onclick: () => { if (ui.askSkip[hd]) delete ui.askSkip[hd]; else ui.askSkip[hd] = true; render(); } }, avatar(hd, "xs", true), hd)),
+    ui.followUp ? h("span", { class: "chip on-follow" }, icon("ask", "sm"), "Following up on " + ui.followUp,
+      h("button", { type: "button", class: "chip-x", "aria-label": "Not a follow-up", onclick: () => { ui.followUp = null; render(); } }, icon("x", "sm"))) : null) : null;
+  return h("footer", { class: "composer" + (mode === "ask" ? " asking" : "") }, h("div", { class: "composer-inner" }, modes, who,
     h("div", { class: "box" }, ta, sendBtn),
     h("p", { class: "hint", text: M.hint + (mode === "goal" ? (ui.autoLock ? " Work starts without asking you: you won't read the test commands first." : " Nothing is built before you approve it.")
       : " Enter sends; Shift+Enter starts a new line.") })));
@@ -860,7 +1058,7 @@ function planSide() {
   const found = S.tasks.filter(t => t.status === "backlog").length;
   if (found) kids.push(h("button", { class: "small", type: "button", onclick: () => go("#/found") }, `Work your AIs found (${found})`));
   kids.push(h("nav", { class: "side-links", "aria-label": "More" },
-    [["usage", "usage", "Usage"], ["notes", "notes", "Notes"], ["history", "history", "History"], ["alerts", "alert", "Problems"]].map(([r, ic, label]) =>
+    [["council", "ask", "Questions"], ["usage", "usage", "Usage"], ["notes", "notes", "Notes"], ["history", "history", "History"], ["alerts", "alert", "Problems"]].map(([r, ic, label]) =>
       h("button", { class: "ghost small", type: "button", onclick: () => go("#/" + r) }, icon(ic, "sm"), label + (r === "alerts" && S.alerts.length ? ` (${S.alerts.length})` : "")))));
   return h("aside", { class: "plan-side", "aria-label": "The plan" }, kids);
 }
@@ -1101,6 +1299,70 @@ function goalForm(st, after) {
     } }, icon("send", "sm"), "Start planning")));
 }
 
+/* ---------------------------------------------------------------- a question to the table */
+
+const ORD = n => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th");
+
+PAGES.council = st => {
+  const id = (route.sub || "").toUpperCase();
+  if (!id) return { title: "Questions to the table", body: [
+    h("p", { class: "muted", text: "Ask from the message box: every AI answers on its own, they rank each other's answers without names, and the one the others ranked best writes the final answer. Second opinions on failing tasks show up here too." }),
+    (st.councils || []).length ? h("ul", { class: "tasklist" }, st.councils.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/council/" + c.id) },
+      h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work"), "aria-hidden": "true" }),
+      h("span", { class: "t" }, h("strong", { text: c.kind === "rescue" ? `Second opinion on ${c.task}` : fit(c.question, 120) }),
+        h("span", { text: `${c.id} · ${c.at} · ${c.members.map(m => m.seat).join(", ")}` }))))))
+      : note("No questions yet. Choose “Ask the table” in the message box.")] };
+  const d = cache.council[id];
+  if (!d) { loadCouncil(id).then(render); return { title: id, back: "#/council", body: h("p", { class: "muted", text: "Loading…" }) }; }
+  if (d.ok === false) return { title: id, back: "#/council", body: note(plainText(d.message) || "There is no such question.") };
+  const rescue = d.kind === "rescue";
+  const answers = d.parts.filter(x => x.stage === "answer");
+  const ranks = d.parts.filter(x => x.stage === "rank");
+  const stepsDef = rescue ? [["answering", "It reads the failure and the code"], ["done", "It sends the builder a diagnosis"]]
+    : [["answering", "Each AI answers on its own"], ["ranking", "They rank the answers, without names"], ["combining", "The best one writes the final answer"], ["done", "Answered"]];
+  const at = d.stage === "done" ? stepsDef.length : stepsDef.findIndex(x => x[0] === d.stage);
+  const steps = h("ol", { class: "steps" }, stepsDef.map(([sid, label], i) => h("li", { class: i < at || d.stage === "done" ? "done" : i === at ? "now" : "" },
+    h("span", { class: "tick", "aria-hidden": "true" }, i < at || d.stage === "done" ? icon("check", "sm") : null), h("div", null, h("strong", { text: label })))));
+  const labelSeat = Object.fromEntries(answers.map(a => [a.label, a.seat]));
+  const body = [
+    h("div", { class: "box" }, h("p", { class: "faint", text: rescue ? `Asked by Roundtable after ${d.task} failed its tests twice` : `You asked ${d.members.join(", ")} at ${d.at}` }),
+      rescue ? h("p", { class: "goal", text: d.question }) : longText(d.question, "cqd-" + id, "goal", 600)),
+    ["done", "failed", "cancelled"].includes(d.stage) ? null : sec(null, steps),
+  ];
+  if (d.final) body.push(sec(rescue ? `${d.chair}'s diagnosis` : "The table's answer", d.chair && !rescue ? h("p", { class: "faint", text: `Written by ${d.chair}${d.ranking.length > 1 && d.ranking[0].seat === d.chair ? ", whose answer the others ranked best" : ""}, from every answer and review.` }) : null,
+    md(d.final)));
+  if (d.error) body.push(note(plainText(d.error), d.stage === "failed" ? "warn" : ""));
+  if (d.ranking && d.ranking.length > 1) body.push(sec("How they ranked each other",
+    h("p", { class: "muted", text: "Each AI saw the answers as Answer A, B, C, in random order and without names, and ranked them all, its own included." }),
+    h("ol", { class: "ranking plain" }, d.ranking.map((r, i) => h("li", { class: "rk" + (i === 0 ? " first" : "") },
+      h("span", { class: "place p" + (i + 1), text: "#" + (i + 1) }), avatar(r.seat, "sm", true),
+      h("span", { class: "rk-who" }, h("strong", { text: r.seat }), h("span", { class: "faint", text: `Answer ${r.label} · ${prettyModel((seatOf(r.seat) || {}).model || "")}` })),
+      h("span", { class: "rk-score", title: "Average place it was given (1 is best)" }, r.avg != null ? `average place ${r.avg}` : "not ranked",
+        r.firsts ? h("span", { class: "faint", text: ` · ranked first by ${plural(r.firsts, "AI")}` }) : null))))));
+  if (answers.length) body.push(sec(rescue ? "What it found" : "Every answer", answers.map(a => {
+    const place = (d.ranking || []).findIndex(r => r.seat === a.seat) + 1;
+    return h("details", { class: "taskcard", "data-k": `ans-${id}-${a.seat}`, open: answers.length === 1 ? true : null },
+      h("summary", null, icon("chevron", "sm"), avatar(a.seat, "sm", true),
+        h("span", null, rescue ? a.seat : `Answer ${a.label || "?"}, by ${a.seat}`),
+        a.status === "running" ? h("span", { class: "pill work", text: "answering" }) : a.status === "failed" ? h("span", { class: "pill stop", text: "couldn't answer" })
+          : place && d.ranking.length > 1 ? h("span", { class: "pill" + (place === 1 ? " ok" : ""), text: `ranked ${ORD(place)}` }) : null,
+        h("span", { class: "faint", text: [a.seconds ? `${Math.round(a.seconds)} s` : "", a.tokens ? `${num(a.tokens)} tokens` : ""].filter(Boolean).join(" · ") })),
+      a.error ? note(plainText(a.error), "warn") : md(a.text));
+  })));
+  if (ranks.length) body.push(sec("Their reviews", ranks.map(r => h("details", { class: "taskcard", "data-k": `rev-${id}-${r.seat}` },
+    h("summary", null, icon("chevron", "sm"), avatar(r.seat, "sm", true), h("span", null, `${r.seat}'s review`),
+      r.ranking.length ? h("span", { class: "faint", text: r.ranking.map(l => labelSeat[l] || l).join(" > ") }) : r.status === "running" ? h("span", { class: "pill work", text: "ranking" }) : null),
+    r.error ? note(plainText(r.error), "warn") : md(String(r.text || "").split("FINAL RANKING:")[0])))));
+  const actions = [];
+  if (d.stage === "done" && !rescue) actions.push(h("button", { type: "button", onclick: () => askFollowUp(d) }, icon("ask", "sm"), "Ask a follow-up"),
+    h("button", { class: "go", type: "button", onclick: () => buildFrom(d) }, icon("plan", "sm"), "Build this"));
+  if (!["done", "failed", "cancelled"].includes(d.stage)) actions.push(h("button", { class: "danger", type: "button",
+    onclick: e => act("council.cancel", { id }, { button: e.currentTarget, title: "Stopped", after: () => { delete cache.council[id]; } }) }, "Stop it"));
+  if (actions.length) body.push(h("div", { class: "row" }, actions));
+  body.push(h("p", { class: "faint", text: `${num(d.tokens)} tokens in all. They could read your project but not change it.` }));
+  return { title: rescue ? `Second opinion on ${d.task}` : "A question to the table", back: "#/council", wide: true, body };
+};
+
 /* ---------------------------------------------------------------- one task */
 
 PAGES.task = st => {
@@ -1246,6 +1508,18 @@ PAGES.review = st => {
 
 /* ---------------------------------------------------------------- one AI */
 
+function appWord(app) { return { "codex-cli": "Codex", opencode: "opencode", "claude-code": "Claude Code" }[app] || (APP_NAMES[app] || [app])[0]; }
+
+async function browseFolder(input, btn, then) {
+  busy(btn, true);
+  const res = await post("/api/do", { kind: "pick_folder" });
+  busy(btn, false);
+  if (!res.ok) { showResult(res); return; }
+  if (!res.folder) return;
+  input.value = res.folder;
+  if (then) then(res.folder);
+}
+
 function startLabel(x) {
   return { terminal: "Start in a terminal", vscode: "Open in VS Code", editor: "Open in " + x.app_label.replace(" editor", "") }[x.start.kind] || "Show me how";
 }
@@ -1310,7 +1584,7 @@ function usageBlock(x, warnAt) {
       h("dt", { text: "Roundtable" }), h("dd", { text: `${num(ex.calls)} messages, about ${num(ex.tokens)} tokens (${num(ex.tokens_today)} today)` })));
 }
 
-const EFFORT_LABEL = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+const EFFORT_LABEL = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" };
 
 PAGES.ai = st => {
   const x = seatOf(route.sub);
@@ -1355,7 +1629,7 @@ function runnerSection(x) {
     h("div", { class: "spread" }, h("h2", { text: "Run it in the background" }), h("span", { class: "pill " + (on ? (r.state === "stuck" ? "you" : r.state === "working" ? "work" : "ok") : ""), text: state })),
     h("p", { class: "muted", text: on
       ? "Roundtable starts " + x.handle + " by itself whenever it has work, with your own login, and puts it back to sleep when it is done. You don't need a terminal open."
-      : "Let Roundtable start " + x.handle + " by itself whenever it has work, with your own " + (x.app === "codex-cli" ? "Codex" : "Claude Code") + " login. Nothing gets stuck waiting for you to nudge it." }),
+      : "Let Roundtable start " + x.handle + " by itself whenever it has work, with your own " + appWord(x.app) + (x.app === "opencode" ? " setup (free models need no login)" : " login") + ". Nothing gets stuck waiting for you to nudge it." }),
     on && r.message ? h("p", { class: r.state === "stuck" ? "box warn" : "faint", text: capital(plainText(r.message)) + (r.runs ? ` · ${plural(r.runs, "run")} so far` : "") }) : null,
     !on && r.error ? h("p", { class: "box warn", text: "Last time: " + plainText(r.error) }) : null,
     h("div", { class: "row" }, on
@@ -1382,29 +1656,96 @@ function liveList(x, data) {
 }
 
 function modelForm(x) {
-  const suggestions = (S.models[x.company] || []);
-  const listId = "ai-models-" + x.handle;
-  const model = h("input", { type: "text", id: "ai-model-" + x.handle, "data-k": "ai-model-" + x.handle, value: x.model, list: listId, spellcheck: "false", autocomplete: "off" });
+  const key = "ai-model-" + x.handle;
+  const field = modelField(key, x.app, x.model);
   const applies = x.can_run ? "Background runs use it from their next start; a terminal you opened needs a restart." : "Takes effect the next time it starts.";
+  const info = modelInfo(x.app, x.model);
+  const efforts = info && info.efforts && info.efforts.length && x.efforts.length ? info.efforts.filter(v => x.efforts.includes(v)) : x.efforts;
+  const save = btn => { const el = APP.querySelector("#" + CSS.escape(key)); const v = el ? el.value.trim() : ""; if (!v || v === x.model) { toast("Pick another model first", "Choose one from the list or type its name."); return; }
+    act("seat.set", { handle: x.handle, model: v }, { button: btn, title: "Model changed", body: applies }); };
   return h("div", { class: "stack" },
-    h("div", { class: "field" }, h("label", { for: "ai-model-" + x.handle, text: "Model" }),
-      h("div", { class: "row" }, h("div", { class: "grow" }, model, h("datalist", { id: listId }, suggestions.map(m => h("option", { value: m })))),
-        h("button", { type: "button", onclick: e => { const v = model.value.trim(); if (!v || v === x.model) return; act("seat.set", { handle: x.handle, model: v }, { button: e.currentTarget, title: "Model changed", body: applies }); } }, "Save"))),
-    x.efforts.length ? h("div", { class: "field" }, h("span", { class: "lbl-like", text: "How hard it thinks" }),
+    h("div", { class: "field" }, h("label", { for: key, text: "Model" }),
+      h("div", { class: "row model-row" }, h("div", { class: "grow" }, field), h("button", { type: "button", onclick: e => save(e.currentTarget) }, "Save")),
+      info ? h("span", { class: "help", text: [info.name, info.free ? "free" : "", info.context ? ctxSize(info.context) + " context" : "", info.note && info.note !== "free" ? info.note : ""].filter(Boolean).join(" · ") }) : null),
+    efforts.length ? h("div", { class: "field" }, h("span", { class: "lbl-like", text: "How hard it thinks" }),
       h("span", { class: "help", text: "More thinking is slower and uses more of your limits, but catches more on hard problems." }),
       h("div", { class: "seg wrap", role: "group", "aria-label": "How hard it thinks" },
-        [""].concat(x.efforts).map(v => h("button", { type: "button", "aria-pressed": String((x.effort || "") === v),
+        [""].concat(efforts).map(v => h("button", { type: "button", "aria-pressed": String((x.effort || "") === v),
           onclick: e => act("seat.set", { handle: x.handle, effort: v || "default" }, { button: e.currentTarget, title: v ? `${x.handle}: ${EFFORT_LABEL[v] || v} thinking` : `${x.handle}: the app's default thinking`, body: applies }) },
           v ? EFFORT_LABEL[v] || v : "App default"))))
       : h("p", { class: "faint", text: "Set how hard it thinks in " + x.app_label + " itself." }),
     h("p", { class: "faint", text: applies }));
 }
 
+/* ---------------------------------------------------------------- choosing a model */
+
+function loadModels(app, refresh) {
+  if (!app || (cache.models[app] && !refresh)) return;
+  cache.models[app] = { loading: true, models: [] };
+  getJSON("/api/models?app=" + encodeURIComponent(app) + (refresh ? "&refresh=1" : ""))
+    .then(r => { cache.models[app] = r && r.models ? r : { models: [] }; render(); })
+    .catch(() => { cache.models[app] = { models: [] }; render(); });
+}
+function modelsOf(app) { return (cache.models[app] || {}).models || []; }
+function modelInfo(app, id) { return modelsOf(app).find(m => m.id === id) || null; }
+function ctxSize(n) { return !n ? "" : n >= 1e6 ? Math.round(n / 1e5) / 10 + "M" : Math.round(n / 1000) + "k"; }
+
+/* A text box that takes any model name, with the app's own list underneath: search, free models marked. */
+function modelField(key, app, value, cls) {
+  loadModels(app);
+  const data = cache.models[app] || { loading: true, models: [] };
+  const open = ui.modelOpen === key;
+  const input = h("input", { type: "text", id: key, "data-k": key, "data-def": value || "", class: "model-input" + (cls ? " " + cls : ""), value: value || "", spellcheck: "false", autocomplete: "off",
+    onclick: () => { if (ui.modelOpen !== key) { ui.modelOpen = key; render(); } },
+    role: "combobox", "aria-expanded": String(open), "aria-controls": key + "-list", placeholder: data.models.length ? "Search or type a model name" : "model name",
+    onfocus: () => { if (ui.modelOpen !== key) { ui.modelOpen = key; render(); } },
+    oninput: () => fill(),
+    onkeydown: e => {
+      if (e.key === "Escape") { ui.modelOpen = null; render(); }
+      if (e.key === "ArrowDown") { const b = listEl.querySelector("button.mi"); if (b) { e.preventDefault(); b.focus(); } }
+      if (e.key === "Enter") { e.preventDefault(); ui.modelOpen = null; render(); }
+    } });
+  const listEl = h("div", { class: "model-list", id: key + "-list", role: "listbox", onmousedown: e => e.preventDefault() });
+  const free = data.models.filter(m => m.free).length;
+  function fill() {
+    const q = input.value.trim().toLowerCase();
+    const exact = data.models.some(m => m.id.toLowerCase() === q);
+    const list = data.models.filter(m => (!ui.freeOnly || m.free) && (!q || exact || m.id.toLowerCase().includes(q) || String(m.name).toLowerCase().includes(q)));
+    listEl.replaceChildren(...[
+      free ? h("div", { class: "ml-bar" }, h("label", { class: "check small-check" },
+        h("input", { type: "checkbox", checked: ui.freeOnly, onchange: e => { ui.freeOnly = e.target.checked; fill(); } }), h("span", { text: `Free only (${free})` })),
+        h("button", { class: "ghost small", type: "button", title: "Ask the app for its newest list", onclick: () => loadModels(app, true) }, "Refresh")) : null,
+      data.loading ? h("p", { class: "faint ml-empty", text: "Loading the app's models…" })
+        : !list.length ? h("p", { class: "faint ml-empty", text: data.models.length ? "No model matches. You can still use the name you typed." : "This app doesn't share a list. Type the model name it uses." })
+          : list.slice(0, 200).map(m => h("button", { type: "button", class: "mi", role: "option", "aria-selected": String(m.id === input.value),
+            onclick: () => { input.value = m.id; ui.modelOpen = null; input.dispatchEvent(new Event("change")); render(); },
+            onkeydown: e => { if (e.key === "ArrowDown" && e.target.nextElementSibling) { e.preventDefault(); e.target.nextElementSibling.focus(); }
+              if (e.key === "ArrowUp") { e.preventDefault(); (e.target.previousElementSibling && e.target.previousElementSibling.classList.contains("mi") ? e.target.previousElementSibling : input).focus(); }
+              if (e.key === "Escape") { ui.modelOpen = null; render(); } } },
+            h("span", { class: "mi-main" }, h("strong", { text: m.name }), h("code", { text: m.id })),
+            h("span", { class: "mi-tags" }, m.free ? h("span", { class: "pill ok", text: "Free" }) : null,
+              m.context ? h("span", { class: "pill", text: ctxSize(m.context) + " context" }) : null),
+            m.note && m.note !== "free" ? h("span", { class: "mi-note", text: fit(m.note, 90) }) : null))].flat().filter(Boolean));
+  }
+  fill();
+  requestAnimationFrame(() => {
+    if (ui.modelOpen !== key) return;
+    fill();
+    const r = input.getBoundingClientRect();
+    listEl.classList.toggle("up", r.bottom + 350 > window.innerHeight && r.top > 360);
+  });
+  return h("div", { class: "model-field" + (open ? " open" : "") }, input, open ? listEl : null);
+}
+
+document.addEventListener("mousedown", e => {
+  if (ui.modelOpen && !(e.target.closest && e.target.closest(".model-field"))) { ui.modelOpen = null; render(); }
+});
+
 /* ---------------------------------------------------------------- add AIs: pick apps, then names */
 
 function suggestName(taken, app, model) {
-  const skip = ["claude", "gpt", "gemini", "qwen", "models", "model", "code", "cli"];
-  const fromModel = String(model || "").toLowerCase().split(/[-_.\/ ]+/).find(x => /^[a-z]{2,}$/.test(x) && !skip.includes(x));
+  const skip = ["claude", "gpt", "gemini", "qwen", "models", "model", "code", "cli", "opencode", "free", "preview", "flash"];
+  const fromModel = String(model || "").toLowerCase().split("/").pop().split(/[-_. ]+/).find(x => /^[a-z]{2,}$/.test(x) && !skip.includes(x));
   const base = fromModel || { "gemini-cli": "gemini", "qwen-code": "qwen", opencode: "opencode", "copilot-cli": "copilot", cursor: "cursor", "codex-cli": "codex", "codex-vscode": "codex", "codex-app": "codex" }[app.key] || "helper";
   let name = base, i = 2;
   while (taken.has(name)) name = base + i++;
@@ -1431,16 +1772,16 @@ function picker(st, onDone) {
   const taken = new Set(st.seats.map(x => x.handle));
   const rows = picked.map(a => {
     const [name] = APP_NAMES[a.key] || [a.label];
-    const suggestions = a.company ? (st.models[a.company] || []) : Object.values(st.models).flat();
-    const defModel = a.company && suggestions[0] ? suggestions[0] : "";
-    const listId = "models-" + a.key;
+    loadModels(a.key);
+    const known = modelsOf(a.key);
+    const suggestions = a.company ? (st.models[a.company] || []) : [];
+    const defModel = (known[0] && (a.key === "opencode" ? (known.find(m => m.free) || known[0]).id : known[0].id)) || (a.company && suggestions[0] ? suggestions[0] : "");
     return { a, el: h("div", { class: "joinrow" }, h("span", { class: "av", "data-c": a.company || "other", "aria-hidden": "true", text: monogram(name) }),
       h("div", { class: "who" }, h("strong", { text: name }), h("p", { class: "faint", text: (APP_NAMES[a.key] || ["", ""])[1] })),
       h("div", { class: "field" }, h("label", { for: "pk-name-" + a.key, text: "Its name" }),
         h("input", { type: "text", id: "pk-name-" + a.key, "data-k": "pk-name-" + a.key, class: "pk-name", maxlength: "24", autocomplete: "off", spellcheck: "false", value: suggestName(taken, a, defModel) })),
-      h("div", { class: "field" }, h("label", { for: "pk-model-" + a.key, text: "Model" }),
-        h("input", { type: "text", id: "pk-model-" + a.key, "data-k": "pk-model-" + a.key, class: "pk-model", list: listId, autocomplete: "off", spellcheck: "false", value: defModel, placeholder: defModel ? null : "model name, like claude-opus-5-5" }),
-        h("datalist", { id: listId }, suggestions.map(m => h("option", { value: m }))))) };
+      h("div", { class: "field" }, h("label", { for: "pk-model-" + a.key, text: "Model" }), modelField("pk-model-" + a.key, a.key, defModel, "pk-model"),
+        a.key === "opencode" ? h("span", { class: "help", text: "Free models need no account. Paid ones use the providers you signed in to in opencode." }) : null)) };
   });
   const add = async btn => {
     const list = rows.map(r => ({ a: r.a, handle: r.el.querySelector(".pk-name").value.trim().toLowerCase(), model: r.el.querySelector(".pk-model").value.trim() }));
@@ -1648,9 +1989,9 @@ PAGES.history = st => {
 
 /* ---------------------------------------------------------------- settings */
 
-const MAIN_SECTIONS = ["runner", "review", "proof", "git", "watch", "usage", "project"];
+const MAIN_SECTIONS = ["runner", "council", "review", "proof", "git", "watch", "usage", "project"];
 const SECTION_LABEL = { project: "Project", review: "Checking each other's work", leases: "File locks", seats: "AIs", proof: "Tests", planning: "Planning", limits: "Limits",
-  git: "Git", watch: "Notifications", usage: "Usage", dashboard: "Dashboard", history: "History", runner: "Background runs" };
+  git: "Git", watch: "Notifications", usage: "Usage", dashboard: "Dashboard", history: "History", runner: "Background runs", council: "Asking the table" };
 const SETTING_TEXT = {
   "project.name": ["Project name", "Shown here and to the AIs."],
   "project.main_branch": ["Branch finished work goes into", "Detected when Roundtable was set up."],
@@ -1669,8 +2010,11 @@ const SETTING_TEXT = {
   "usage.warn_percent": ["Warn me at this % of a plan limit", ""],
   "runner.permissions": ["What an AI running in the background may do", "Its own files, git and the project's test commands; or any command in its own copy of the project."],
   "runner.max_minutes": ["Stop a background run after (minutes)", "A run that goes on longer is stopped; the AI picks up again at its next run."],
+  "council.rescue": ["Second opinion on failing tasks", "When a task fails its tests twice in a row, an AI from another company looks at it and tells the builder what it found."],
+  "council.chair": ["Who writes the final answer", "The AI whose answer the others ranked best, or each AI in turn."],
+  "council.max_minutes": ["Stop an answer after (minutes)", "Each answer, ranking or final answer."],
 };
-const CHOICE_TEXT = { "runner.permissions": { edits: "Its own files, git and tests", all: "Any command" } };
+const CHOICE_TEXT = { "runner.permissions": { edits: "Its own files, git and tests", all: "Any command" }, "council.chair": { best: "The best-ranked AI", rotate: "Each AI in turn" } };
 
 PAGES.settings = st => {
   const sections = {};
@@ -1713,7 +2057,7 @@ PAGES.help = st => ({ title: "Help", body: [
   sec("This room", h("ul", { class: "stack tight" }, [
     ["The middle", "is the conversation: everything your AIs do arrives here as a message, newest at the bottom."],
     ["Above the message box", "is whatever needs you, with the buttons that settle it. When it's empty, you have nothing to do."],
-    ["The message box", "gives your AIs a goal. Once they have one, it sends them notes, problems or extra tasks."],
+    ["The message box", "gives your AIs a goal, or asks the table a question. Once they have a goal, it also sends them notes, problems or extra tasks."],
     ["The left", "is your team around the table. A green light means its app is open; blue means it's working. Click an AI to start it or see its usage."],
     ["The right", "is the plan: the steps while they plan, then every task while they build."],
   ].map(([a, b]) => h("li", null, h("strong", { text: a + " " }), b)))),
@@ -1722,8 +2066,10 @@ PAGES.help = st => ({ title: "Help", body: [
     "You give a goal. Each AI writes a plan without seeing the others', then comments on the others' plans without knowing who wrote which. One AI combines the best parts and the others agree.",
     "You read the plan and the test commands it will run, and approve. Nothing is built before you do.",
     "While an AI works on a task, that task's files are its alone. When it says it's done, Roundtable runs the tests itself, an AI from another company checks the changes, and the work is merged into your project.",
-    "AIs don't listen in the background: when a chat goes quiet, type “check roundtable” in it. Running rt watch sends you desktop notifications.",
+    "Claude Code, Codex and opencode can run in the background: Roundtable wakes them whenever there is work. Other apps act only while you talk to them: when a chat goes quiet, type “check roundtable” in it.",
   ].map(t => h("li", { text: t })))),
+  sec("Ask the table", h("p", { text: "Choose “Ask the table” in the message box to ask anything: about your code, a design choice, a bug. Every AI answers on its own; then each one reads all the answers as Answer A, B, C, without names, says what is right and wrong in each, and ranks them. The AI whose answer the others ranked best writes the final answer from all of them. They can read your project but can't change it." }),
+    h("p", { class: "muted", text: "When a task fails its tests twice in a row, Roundtable does something similar by itself: an AI from another company reads the failure in the builder's copy of the project and sends the builder a diagnosis, which it must answer. You can turn that off in Settings." })),
   sec("Words you may see in the AIs' chats", h("dl", { class: "kv" }, [
     ["Seat", "One AI in one app, with a short name like opus."], ["Working copy", "The AI's own folder with a copy of your project, on its own git branch."],
     ["Lease", "A task's files, locked to the AI working on it."], ["Proof", "The test command that shows a task works. Roundtable runs it."],
@@ -1732,7 +2078,7 @@ PAGES.help = st => ({ title: "Help", body: [
     ["Alert levels", "1 note, 2 heads-up, 3 must be acknowledged, 4 holds the files, 5 stops everyone."],
   ].map(([t, d]) => [h("dt", { text: t }), h("dd", { text: d })]))),
   h("details", { class: "section", "data-k": "help-cli" }, h("summary", null, icon("chevron", "sm"), "The same things from a terminal"), h("dl", { class: "kv" }, [
-    ["Open this dashboard", "rt ui"], ["See what needs you", "rt status"], ["Add an AI", "rt seat add opus --model claude-opus-5-5 --app claude-code"],
+    ["Open this app", "rt app"], ["Add it to your app menu", "rt app --install"], ["Ask the table", "rt ask \"your question\""], ["See what needs you", "rt status"], ["Add an AI", "rt seat add opus --model claude-opus-5-5 --app claude-code"],
     ["Start an AI", "rt launch opus"], ["Connect an app", "rt setup codex"], ["Give a goal", "rt goal \"what to build\" --review mid"],
     ["Approve the plan", "rt plan view, then rt plan lock"], ["List tasks", "rt task list"], ["Accept found work", "rt task accept T7"],
     ["Check changes", "rt review get T3, then rt review submit T3 approve"], ["Report a problem", "rt alert raise 3 \"what is wrong\""],
@@ -1742,7 +2088,7 @@ PAGES.help = st => ({ title: "Help", body: [
     h("dt", { text: "Project" }), h("dd", { class: "mono", text: st.project.root }),
     h("dt", { text: "Roundtable's data" }), h("dd", { class: "mono", text: st.project.home }),
     h("dt", { text: "AIs' copies" }), h("dd", { class: "mono pre", text: st.seats.filter(x => x.worktree).map(x => x.worktree).join("\n") || "none yet" }))),
-  sec("Credits", h("p", { class: "muted", text: "Planning together borrows from Andrej Karpathy's LLM Council (anonymous peer review and a chairman). Task tracking learns from Steve Yegge's Beads and Gas Town, and messaging from MCP Agent Mail. Text is set in Atkinson Hyperlegible Next by the Braille Institute (SIL Open Font License)." })),
+  sec("Credits", h("p", { class: "muted", text: "Planning together and asking the table borrow from Andrej Karpathy's LLM Council (independent answers, anonymous peer ranking and a chairman). Task tracking learns from Steve Yegge's Beads and Gas Town, and messaging from MCP Agent Mail. Text is set in Atkinson Hyperlegible Next by the Braille Institute (SIL Open Font License)." })),
   h("p", { class: "faint", text: "Roundtable v" + st.project.version })] });
 
 /* ---------------------------------------------------------------- another project */
@@ -1753,7 +2099,12 @@ PAGES.switch = st => {
     h("p", { class: "muted", text: "Roundtable keeps one table per project folder. Open another folder here; if it has no table yet, you can set one up there next." }),
     h("dl", { class: "kv" }, h("dt", { text: "Now open" }), h("dd", { class: "mono", text: st.project.root })),
     h("div", { class: "field" }, h("label", { for: "switch-folder", text: "Folder" }),
-      h("div", { class: "row" }, h("div", { class: "grow" }, input), h("button", { class: "go", type: "button", onclick: e => special("open", { folder: input.value.trim() }, { button: e.currentTarget, title: "Opened", after: () => go("#/room") }) }, "Open")))] };
+      h("div", { class: "row" }, h("div", { class: "grow" }, input),
+        h("button", { type: "button", onclick: e => browseFolder(input, e.currentTarget, f => special("open", { folder: f }, { title: "Opened", after: () => go("#/room") })) }, icon("folder", "sm"), "Browse…"),
+        h("button", { class: "go", type: "button", onclick: e => special("open", { folder: input.value.trim() }, { button: e.currentTarget, title: "Opened", after: () => go("#/room") }) }, "Open"))),
+    st.recent && st.recent.length ? sec("Recent projects", h("ul", { class: "tasklist" }, st.recent.filter(r => r.root !== st.project.root).map(r => h("li", null,
+      h("button", { type: "button", onclick: e => special("open", { folder: r.root }, { button: e.currentTarget, title: "Opened " + r.name, after: () => go("#/room") }) },
+        icon("folder", "sm"), h("span", { class: "t" }, h("strong", { text: r.name }), h("span", { text: r.root }))))))) : null] };
 };
 
 /* ---------------------------------------------------------------- first visit: three steps */
@@ -1844,7 +2195,9 @@ function setupScreen(st) {
     h("div", { class: "row" }, h("button", { class: "go", type: "button", disabled: !can, onclick: e => special("init", { folder: f.folder }, { button: e.currentTarget, title: "Roundtable is set up" }) }, "Set up Roundtable in this folder")),
     h("details", { "data-k": "setup-other" }, h("summary", null, icon("chevron", "sm"), "Use another folder"),
       h("div", { class: "field" }, h("label", { for: "open-folder", text: "Folder" }),
-        h("div", { class: "row" }, h("div", { class: "grow" }, folderIn), h("button", { type: "button", onclick: e => special("open", { folder: folderIn.value.trim() }, { button: e.currentTarget, title: "Opened" }) }, "Open")))),
+        h("div", { class: "row" }, h("div", { class: "grow" }, folderIn),
+          h("button", { type: "button", onclick: e => browseFolder(folderIn, e.currentTarget, f => special("open", { folder: f }, { title: "Opened" })) }, icon("folder", "sm"), "Browse…"),
+          h("button", { type: "button", onclick: e => special("open", { folder: folderIn.value.trim() }, { button: e.currentTarget, title: "Opened" }) }, "Open")))),
     st.recent && st.recent.length ? h("section", { class: "section" }, h("h2", { text: "Recent projects" }),
       h("ul", { class: "tasklist" }, st.recent.map(r => h("li", null, h("button", { type: "button", onclick: e => special("open", { folder: r.root }, { button: e.currentTarget, title: "Opened " + r.name }) },
         icon("folder", "sm"), h("span", { class: "t" }, h("strong", { text: r.name }), h("span", { text: r.root }))))))) : null)));

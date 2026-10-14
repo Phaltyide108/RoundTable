@@ -46,10 +46,43 @@ FLAGGED = ("claude-code", "codex-cli")
 # (claude --effort ...; codex -c model_reasoning_effort=...). Other apps: set it in the app.
 EFFORTS: dict[str, tuple[str, ...]] = {
     "claude-code": ("low", "medium", "high", "xhigh", "max"),
-    "codex-cli": ("minimal", "low", "medium", "high", "xhigh"),
+    "codex-cli": ("minimal", "low", "medium", "high", "xhigh", "max", "ultra"),   # max/ultra: GPT-6.1 Sol and newer
+    "opencode": ("minimal", "low", "medium", "high", "xhigh", "max"),   # opencode --variant (what the model offers)
 }
 
-COMPANIES = ("anthropic", "openai", "google", "alibaba", "xai", "meta", "mistral", "deepseek", "other")
+COMPANIES = ("anthropic", "openai", "google", "alibaba", "xai", "meta", "mistral", "deepseek", "zhipu", "moonshot",
+             "minimax", "xiaomi", "nvidia", "other")
+
+# Model name fragments -> maker, for any app (opencode names them provider/model, e.g. opencode/glm-5.3).
+MAKERS = (
+    (("claude", "opus", "sonnet", "haiku", "fable", "mythos"), "anthropic"),
+    (("gpt", "o1-", "o3", "o4-", "codex", "chatgpt"), "openai"),
+    (("gemini", "gemma"), "google"),
+    (("qwen", "qwq"), "alibaba"),
+    (("grok",), "xai"),
+    (("deepseek",), "deepseek"),
+    (("glm", "zhipu", "z-ai"), "zhipu"),
+    (("kimi", "moonshot"), "moonshot"),
+    (("minimax",), "minimax"),
+    (("mimo", "xiaomi"), "xiaomi"),
+    (("nemotron", "nvidia"), "nvidia"),
+    (("mistral", "codestral", "devstral", "magistral"), "mistral"),
+    (("llama", "meta-"), "meta"),
+)
+
+
+def company_of_model(model: str) -> str | None:
+    """Who makes a model, from its name: claude-opus-5-5, gpt-6.1-sol, opencode/glm-5.3, openrouter/qwen/qwen3.8-max ..."""
+    m = (model or "").lower()
+    parts = [p for p in m.replace(":", "/").split("/") if p]
+    for name in reversed(parts or [m]):
+        for frags, company in MAKERS:
+            if any(name.startswith(f) or f"-{f}" in name for f in frags):
+                return company
+    for frags, company in MAKERS:              # a provider prefix alone: anthropic/..., openai/..., google/...
+        if parts and parts[0] in (company, *frags):
+            return company
+    return None
 
 # Model names known to work, offered as suggestions (people can type any name their app accepts).
 MODEL_SUGGESTIONS = {

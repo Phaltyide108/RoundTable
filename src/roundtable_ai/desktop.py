@@ -174,3 +174,50 @@ def open_folder(folder: str | Path) -> str:
     except OSError as exc:
         raise RTError(NOT_FOUND, f"could not open the folder ({exc})", f"open {folder} yourself") from None
     return f"opened {folder}"
+
+
+_GTK_PICKER = r"""
+import sys
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+d = Gtk.FileChooserDialog(title=sys.argv[1], action=Gtk.FileChooserAction.SELECT_FOLDER)
+d.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Choose", Gtk.ResponseType.OK)
+d.set_current_folder(sys.argv[2])
+if d.run() == Gtk.ResponseType.OK:
+    print(d.get_filename())
+"""
+
+
+def folder_picker_command(title: str, start: str, *, platform: str | None = None, which: Which = shutil.which) -> list[str] | None:
+    """The command that shows this computer's own folder chooser and prints the chosen path."""
+    plat = platform or sys.platform
+    if plat == "darwin":
+        return ["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")']
+    if plat.startswith("win"):
+        ps = ("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+              f"$f.Description = '{title}'; $f.SelectedPath = '{start}'; if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }}")
+        return ["powershell", "-NoProfile", "-STA", "-Command", ps]
+    if which("zenity"):
+        return ["zenity", "--file-selection", "--directory", f"--title={title}", f"--filename={start.rstrip('/')}/"]
+    if which("kdialog"):
+        return ["kdialog", "--getexistingdirectory", start, "--title", title]
+    if Path("/usr/bin/python3").exists():
+        return ["/usr/bin/python3", "-I", "-c", _GTK_PICKER, title, start]
+    return None
+
+
+def pick_folder(title: str = "Choose your project folder", start: str | None = None) -> str | None:
+    """Show the folder chooser and wait for the person. None when cancelled or when there is none."""
+    cmd = folder_picker_command(title, start or str(Path.home()))
+    if cmd is None:
+        raise RTError(NOT_FOUND, "this computer has no folder chooser Roundtable can open", "type the folder's full path instead")
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        raise RTError(NOT_FOUND, "the folder chooser could not be opened", "type the folder's full path instead") from None
+    out = (res.stdout or "").strip().splitlines()
+    path = out[-1].strip() if out and res.returncode == 0 else ""
+    if not path:
+        return None
+    return path if path == "/" else path.rstrip("/\\")

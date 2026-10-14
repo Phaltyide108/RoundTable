@@ -80,6 +80,11 @@ SCHEMA: dict[str, dict[str, tuple[Any, Any, str]]] = {
         "permissions": ("edits", ("edits", "all"), "Background runs: edits = its own files, Roundtable, git and the project's test commands; all = any command"),
         "max_minutes": (45, int, "A background run is stopped after this many minutes"),
     },
+    "council": {
+        "max_minutes": (15, int, "Ask the table: each answer, ranking or final answer is stopped after this many minutes"),
+        "rescue": (True, bool, "When a task fails its tests twice, an AI from another company looks at it and sends the builder a diagnosis"),
+        "chair": ("best", ("best", "rotate"), "Who writes the final answer: best = the AI whose answer the others ranked highest; rotate = take turns"),
+    },
     "dashboard": {
         "port": (8765, int, "Local dashboard port (127.0.0.1 only)"),
     },

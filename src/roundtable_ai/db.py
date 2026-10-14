@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import BUSY, NOT_INITIALIZED, VERSION, RTError
-from .schema import MIGRATION_1_TO_2, MIGRATION_2_TO_3, SCHEMA_V1, SCHEMA_VERSION
+from .schema import COUNCIL_TABLES, MIGRATION_1_TO_2, MIGRATION_2_TO_3, SCHEMA_V1, SCHEMA_VERSION
 
 BUSY_TIMEOUT_MS = 10_000
 
@@ -29,7 +29,7 @@ MIGRATIONS: dict[int, str] = {1: MIGRATION_1_TO_2, 2: MIGRATION_2_TO_3}
 
 # Extra CREATE TABLE IF NOT EXISTS statements registered by modules
 # (applied on every open; must be idempotent).
-_EXTRA_SCHEMA: list[str] = []
+_EXTRA_SCHEMA: list[str] = [COUNCIL_TABLES]
 
 
 def register_schema(sql: str) -> None:

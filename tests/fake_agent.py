@@ -1,4 +1,4 @@
-"""A stand-in for `claude -p` and `codex exec` used by the end-to-end tests.
+"""A stand-in for `claude -p`, `codex exec` and `opencode run` used by the end-to-end tests.
 
 It is started exactly the way Roundtable's background runner starts the real
 apps (same flags), starts the Roundtable MCP server from the settings it was
@@ -27,6 +27,9 @@ def parse(argv: list[str]) -> dict:
     if argv and argv[0] == "exec":
         out["app"] = "codex"
         argv = argv[1:]
+    elif argv and argv[0] == "run":
+        out["app"] = "opencode"
+        argv = argv[1:]
     i = 0
     rest = []
     while i < len(argv):
@@ -48,12 +51,16 @@ def parse(argv: list[str]) -> dict:
             out["overrides"][key] = tomllib.loads("v = " + value)["v"]
             i += 2
             continue
-        if a in ("-C",):
+        if a in ("-C", "--dir"):
             out["cwd"] = argv[i + 1]
             i += 2
             continue
+        if a in ("--session",):
+            out["resume"] = argv[i + 1]
+            i += 2
+            continue
         if a in ("--model", "-m", "--effort", "--output-format", "--append-system-prompt", "--permission-mode",
-                 "--allowedTools", "-s"):
+                 "--allowedTools", "-s", "--variant", "--format", "--disallowedTools"):
             out[a.lstrip("-")] = argv[i + 1]
             i += 2
             continue
@@ -67,10 +74,15 @@ def parse(argv: list[str]) -> dict:
             out["resume"] = rest[1]
             rest = rest[2:]
         out["prompt"] = rest[-1] if rest else ""
+    if out["app"] == "opencode":
+        out["prompt"] = rest[-1] if rest else ""
     return out
 
 
 def server_from(args: dict) -> tuple[list[str], dict]:
+    if args["app"] == "opencode":
+        srv = json.loads(os.environ["OPENCODE_CONFIG_CONTENT"])["mcp"]["roundtable"]
+        return list(srv["command"]), srv.get("environment", {})
     if args["app"] == "claude":
         cfg = json.loads(Path(args["mcp_config"]).read_text())
         srv = next(iter(cfg["mcpServers"].values()))
@@ -122,37 +134,52 @@ class Mcp:
 class Out:
     def __init__(self, app: str):
         self.app = app
+        self.session = ""
 
     def emit(self, obj: dict) -> None:
+        if self.app == "opencode":
+            obj = dict(obj, timestamp=1791900000000, sessionID=self.session)
         sys.stdout.write(json.dumps(obj) + "\n")
         sys.stdout.flush()
 
     def start(self, session: str) -> None:
-        if self.app == "claude":
+        self.session = session
+        if self.app == "opencode":
+            self.emit({"type": "step_start", "part": {"type": "step-start"}})
+        elif self.app == "claude":
             self.emit({"type": "system", "subtype": "init", "session_id": session, "model": "fake"})
         else:
             self.emit({"type": "thread.started", "thread_id": session})
 
     def think(self, text: str) -> None:
-        if self.app == "claude":
+        if self.app == "opencode":
+            self.emit({"type": "reasoning", "part": {"type": "reasoning", "text": text}})
+        elif self.app == "claude":
             self.emit({"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": text}]}})
         else:
             self.emit({"type": "item.completed", "item": {"id": "r", "type": "reasoning", "text": text}})
 
     def tool(self, name: str, args: dict) -> None:
-        if self.app == "claude":
+        if self.app == "opencode":
+            self.emit({"type": "tool_use", "part": {"type": "tool", "tool": f"roundtable_{name}", "state": {"status": "completed", "input": args}}})
+        elif self.app == "claude":
             self.emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": f"mcp__roundtable__{name}", "input": args}]}})
         else:
             self.emit({"type": "item.started", "item": {"id": "m", "type": "mcp_tool_call", "server": "roundtable", "tool": name, "arguments": args}})
 
     def edit(self, path: str) -> None:
-        if self.app == "claude":
+        if self.app == "opencode":
+            self.emit({"type": "tool_use", "part": {"type": "tool", "tool": "write", "state": {"status": "completed", "input": {"filePath": path}}}})
+        elif self.app == "claude":
             self.emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Write", "input": {"file_path": path}}]}})
         else:
             self.emit({"type": "item.completed", "item": {"id": "f", "type": "file_change", "changes": [{"path": path, "kind": "add"}]}})
 
     def done(self, session: str, text: str) -> None:
-        if self.app == "claude":
+        if self.app == "opencode":
+            self.emit({"type": "text", "part": {"type": "text", "text": text}})
+            self.emit({"type": "step_finish", "part": {"type": "step-finish", "tokens": {"input": 1000, "output": 200, "reasoning": 0, "cache": {"read": 0, "write": 0}}}})
+        elif self.app == "claude":
             self.emit({"type": "result", "subtype": "success", "is_error": False, "result": text, "session_id": session,
                        "num_turns": 3, "usage": {"input_tokens": 1000, "output_tokens": 200}})
         else:
@@ -173,9 +200,45 @@ def solo(args) -> int:
     return 0
 
 
+def council(args) -> int:
+    """Ask the table: answer, rank or combine, depending on the prompt (no Roundtable tools)."""
+    import re
+
+    out = Out(args["app"])
+    model = args.get("model") or args.get("m") or "?"
+    prompt = args.get("prompt") or ""
+    with open(os.environ["FAKE_COUNCIL_LOG"], "a") if os.environ.get("FAKE_COUNCIL_LOG") else open(os.devnull, "w") as fh:
+        fh.write(json.dumps({"model": model, "app": args["app"], "permission": args.get("permission-mode") or args.get("s"),
+                             "kind": "rank" if "FINAL RANKING:" in prompt else "final" if "You write the final answer" in prompt
+                             else "rescue" if "second opinion" in prompt else "answer"}) + "\n")
+    if os.environ.get("FAKE_COUNCIL_FAIL") == model:
+        sys.stderr.write("fake failure: not signed in\n")
+        return 1
+    out.start("council-1")
+    out.think("Reading the project to answer.")
+    if "FINAL RANKING:" in prompt:
+        answers = re.findall(r"Answer ([A-H]):\n<<<\n(.*?)\n>>>", prompt, re.S)
+        order = sorted(answers, key=lambda a: ("BEST" not in a[1], a[0]))
+        text = "\n".join(f"Answer {label}: fine." for label, _t in answers) + "\nFINAL RANKING:\n" + "\n".join(
+            f"{i}. Answer {label}" for i, (label, _t) in enumerate(order, 1))
+    elif "You write the final answer" in prompt:
+        text = f"Final answer by {model}: 42, as the best answer said."
+    elif "second opinion" in prompt:
+        text = f"Diagnosis from {model}: the test expects 'Hi' but the code returns 'hi'."
+    else:
+        text = f"{model} says 42." + (" BEST" if model == os.environ.get("FAKE_BEST_MODEL") else "")
+    out.done("council-1", text)
+    return 0
+
+
 def main() -> int:
     args = parse(sys.argv[1:])
-    if not args.get("mcp_config") and not any(k.startswith("mcp_servers.") for k in args["overrides"]):
+    no_mcp = not args.get("mcp_config") and not any(k.startswith("mcp_servers.") for k in args["overrides"]) \
+        and not (args["app"] == "opencode" and "roundtable" in os.environ.get("OPENCODE_CONFIG_CONTENT", ""))
+    if no_mcp and ("answering the same question" in (args.get("prompt") or "") or "FINAL RANKING:" in (args.get("prompt") or "")
+                   or "You write the final answer" in (args.get("prompt") or "") or "second opinion" in (args.get("prompt") or "")):
+        return council(args)
+    if no_mcp:
         return solo(args)
     cmd, env = server_from(args)
     home = Path(env["RT_HOME"])

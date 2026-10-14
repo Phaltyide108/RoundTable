@@ -251,6 +251,12 @@ def finish(ctx, run_id: str) -> str:
         events.emit(ctx, "task.proof_failed",
                     f"{t['id']} proof {row['status']}" + (f" at `{util.one_line(row['failed_cmd'], 60)}`" if row["failed_cmd"] else "") + f": {util.one_line(first[0], 80)}",
                     ref=run_id, task=t["id"], audience=[t["owner"]] if t["owner"] else None, level=2, actor="system")
+    try:
+        from . import council
+
+        council.maybe_rescue(ctx, t["id"])      # second failure in a row: another company's AI takes a look
+    except Exception:  # noqa: BLE001 - a second opinion is a bonus, never a reason for the proof to fail
+        pass
     return f"{t['id']} back to {back}"
 
 

@@ -24,27 +24,13 @@ RESERVED = {HUMAN, SYSTEM, "all", "everyone", "any", "none", "me"}
 
 
 def company_for(app: str, model: str) -> str | None:
-    m = (model or "").lower()
     implied = apps_mod.APPS[app].company if app in apps_mod.APPS else None
     if implied:
         return implied
-    if m.startswith("claude") or any(x in m for x in ("opus", "sonnet", "haiku", "fable", "mythos")):
-        return "anthropic"
-    if m.startswith(("gpt", "o1", "o3", "o4", "codex")):
-        return "openai"
-    if m.startswith("gemini") or "/gemini" in m:
-        return "google"
-    if m.startswith("qwen") or "/qwen" in m:
-        return "alibaba"
-    if "/claude" in m or m.startswith("anthropic/"):
-        return "anthropic"
-    if "/gpt" in m or m.startswith("openai/"):
-        return "openai"
-    if m.startswith("grok") or m.startswith("xai/"):
-        return "xai"
-    if m.startswith(("deepseek", "deepseek/")):
-        return "deepseek"
-    return None
+    found = apps_mod.company_of_model(model)
+    if found:
+        return found
+    return "other" if app == "opencode" else None   # opencode's own stealth / free models
 
 
 # ---------------------------------------------------------------- lookups
@@ -173,7 +159,7 @@ def add(ctx, handle, model, app, company=None, roles=None, worktree=None) -> Res
 
 @op("seat.set", who=WHO_HUMAN, desc="Change a seat's model or how hard it thinks (takes effect the next time it starts)",
     params=[Param("handle", required=True), Param("model", desc="model id the app accepts"),
-            Param("effort", desc="thinking effort: claude-code low|medium|high|xhigh|max, codex-cli minimal|low|medium|high|xhigh; 'default' clears it")])
+            Param("effort", desc="thinking effort: claude-code low|medium|high|xhigh|max, codex-cli minimal..xhigh|max|ultra, opencode the model's variants; 'default' clears it")])
 def set_seat(ctx, handle, model=None, effort=None) -> Result:
     handle = util.check_handle(handle)
     if model is None and effort is None:

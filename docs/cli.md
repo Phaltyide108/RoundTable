@@ -36,6 +36,8 @@ positional arguments:
     bench         does a team do better than one AI? same task, hidden tests
     doctor        check everything and suggest fixes
     watch         notify you and wake seats when needed
+    ask           ask the table: every AI answers, they rank each other's
+                  answers without names, the best writes the final answer
     app           open Roundtable in its own window (--install adds it to your
                   app menu)
     ui            the same as rt app: Roundtable in its own window
@@ -165,7 +167,8 @@ options:
   -h, --help       show this help message and exit
   --model MODEL
   --effort EFFORT  claude-code: low|medium|high|xhigh|max; codex-cli:
-                   minimal|low|medium|high|xhigh; default clears it
+                   minimal|low|medium|high|xhigh|max|ultra; opencode: the
+                   model's variants; default clears it
 ```
 
 ### rt seat pause
@@ -983,6 +986,33 @@ options:
   --interval INTERVAL
 ```
 
+## rt ask
+
+```text
+usage: rt ask [-h] [--seats SEATS] [--follow-up FOLLOW_UP] [--no-wait]
+              [--show ID] [--all] [--list] [--cancel ID]
+              [question]
+
+positional arguments:
+  question              what you want to know (the AIs can read the project
+                        but change nothing)
+
+options:
+  -h, --help            show this help message and exit
+  --seats SEATS         comma list of who answers (default: every AI
+                        Roundtable can run)
+  --follow-up FOLLOW_UP
+                        the id of an earlier question this one follows, e.g.
+                        Q2
+  --no-wait             start it and return; see it later with rt ask --show
+                        Q1
+  --show ID             show a question: the final answer and how they ranked
+                        each other
+  --all                 with --show: every answer and review in full
+  --list                questions asked so far
+  --cancel ID           stop a question that is still being answered
+```
+
 ## rt app
 
 ```text
@@ -1055,6 +1085,10 @@ options:
 - `admin.unfreeze`: Let seats work again
 - `admin.usage`: Context, tokens and plan limits per seat, plus Roundtable's own token cost
 - `alert.set_level`: Change an alert's level
+- `council.ask`: Ask the table: every chosen AI answers on its own, they rank each other's answers without names, and the best writes the final answer
+- `council.cancel`: Stop a question that is still being answered
+- `council.list`: Questions asked to the table, newest first
+- `council.show`: A question to the table: the final answer, how they ranked each other, and every answer
 - `memory.pin`: Pin a note so every seat sees it when it joins (or unpin it)
 - `plan.amend_decide`: Approve (applies now) or reject an amendment
 - `plan.cancel`: Cancel the active plan (and its unfinished tasks)

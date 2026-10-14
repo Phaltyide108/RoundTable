@@ -46,7 +46,7 @@ BACKOFF_START = 60
 BACKOFF_MAX = 30 * 60
 CONTINUE_SECONDS = 20     # the same work is still open after a run that did something
 SAME_WORK_RUNS = 3        # ... at most this many times in a row, then it counts as stuck
-SUPPORTED = ("claude-code", "codex-cli")
+SUPPORTED = ("claude-code", "codex-cli", "opencode")
 
 SAFE_TOOLS = ["mcp__roundtable", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "TodoWrite",
               "Bash(git status *)", "Bash(git diff *)", "Bash(git log *)", "Bash(git show *)", "Bash(git add *)",
@@ -267,7 +267,39 @@ def headless_command(ctx, row, prompt: str, session: str | None) -> tuple[list[s
         if effort:
             cmd += ["-c", f"model_reasoning_effort={toml_value(effort)}"]
         return cmd + [prompt], cwd
+    if app == "opencode":
+        # opencode run has no system-prompt flag: the seat note leads the prompt. Roundtable's connection and the
+        # permissions come in through OPENCODE_CONFIG_CONTENT (headless_env), so no file in the folder changes.
+        cmd = [launch._exe("opencode"), "run", "--format", "json", "--thinking", "--dir", str(cwd), "-m", model]
+        if effort:
+            cmd += ["--variant", effort]
+        if session:
+            cmd += ["--session", session]
+        if everything:
+            cmd += ["--auto"]
+        return cmd + [launch.system_note(handle) + "\n\n" + prompt], cwd
     raise RTError(INVALID, f"Roundtable can't run {app} in the background", "start it in its app instead (rt launch shows how)")
+
+
+def headless_env(ctx, row) -> dict[str, str]:
+    """Extra environment for a background run (opencode: Roundtable's MCP server and what it may do)."""
+    if row["app"] != "opencode":
+        return {}
+    from . import appsetup
+
+    cmd, args = appsetup.server_command()
+    if ctx.setting("runner", "permissions") == "all":
+        perms: dict[str, Any] = {"edit": "allow", "bash": "allow", "webfetch": "allow"}
+    else:
+        bash: dict[str, str] = {"*": "deny"}
+        for rule in [r[5:-1] for r in SAFE_TOOLS + _proof_prefixes(ctx) if r.startswith("Bash(")]:
+            bash[rule.replace(" *", "*")] = "allow"
+        perms = {"edit": "allow", "bash": bash, "webfetch": "deny"}
+    cfg = {"$schema": "https://opencode.ai/config.json",
+           "mcp": {"roundtable": {"type": "local", "command": [cmd, *args], "enabled": True,
+                                  "environment": {"RT_HOME": str(ctx.home), "RT_SEAT": row["handle"]}}},
+           "permission": perms}
+    return {"OPENCODE_CONFIG_CONTENT": json.dumps(cfg)}
 
 
 # ---------------------------------------------------------------- one run
@@ -304,6 +336,16 @@ def _parse_line(app: str, line: str, root: str) -> tuple[list[dict], dict]:
         if ev.get("type") == "rate_limit_event":
             facts["limit"] = ev.get("rate_limit_info") or {}
         return activity.from_claude(ev, root), facts
+    if app == "opencode":
+        if ev.get("sessionID"):
+            facts["session"] = ev["sessionID"]
+        if ev.get("type") == "step_finish":
+            tk = ((ev.get("part") or {}).get("tokens") or {})
+            cache = tk.get("cache") if isinstance(tk.get("cache"), dict) else {}
+            facts["tokens_add"] = sum(int(tk.get(k) or 0) for k in ("input", "output", "reasoning")) + int(cache.get("write") or 0)
+        if ev.get("type") == "error":
+            facts["error"] = True
+        return activity.from_opencode(ev, root), facts
     if ev.get("type") == "thread.started" and ev.get("thread_id"):
         facts["session"] = ev["thread_id"]
     if ev.get("type") == "turn.completed":
@@ -344,6 +386,7 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
     cmd, cwd = headless_command(ctx, row, prompt, session)
     env = clean_env(os.environ)
     env.update({"RT_SEAT": handle, "RT_HOME": str(ctx.home)})
+    env.update(headless_env(ctx, row))
     log = ctx.home / "logs" / f"run-{handle}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     kwargs: dict[str, Any] = {"cwd": str(cwd), "env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.PIPE}
@@ -371,6 +414,8 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
                     continue
                 facts["lines"] += 1
                 items, f = _parse_line(app, line, str(cwd))
+                if "tokens_add" in f:
+                    facts["tokens"] = int(facts.get("tokens") or 0) + int(f.pop("tokens_add") or 0)
                 facts.update({k: v for k, v in f.items() if v is not None})
                 if items:
                     activity.append(ctx.home, handle, items)
@@ -419,7 +464,7 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
         if row is None:
             raise RTError(NOT_FOUND, f"no seat {handle}", "rt seat list")
         if row["app"] not in SUPPORTED:
-            raise RTError(INVALID, f"Roundtable can run only Claude Code and Codex in the background; {handle} uses {row['app']}",
+            raise RTError(INVALID, f"Roundtable can run only Claude Code, Codex and opencode in the background; {handle} uses {row['app']}",
                           "start it in its own app (rt launch shows how)")
         if is_running(ctx.home, handle) and read_state(ctx.home, handle).get("pid") != os.getpid():
             raise RTError(CONFLICT, f"{handle} already runs in the background", f"stop it first: rt run {handle} --stop")
@@ -598,11 +643,11 @@ def start_detached(home: Path, handle: str) -> int:
         if row is None:
             raise RTError(NOT_FOUND, f"no seat {handle}")
         if row["app"] not in SUPPORTED:
-            raise RTError(INVALID, f"Roundtable can run only Claude Code and Codex in the background; {handle} uses {row['app']}",
+            raise RTError(INVALID, f"Roundtable can run only Claude Code, Codex and opencode in the background; {handle} uses {row['app']}",
                           "start it in its own app")
         from . import launch
 
-        launch._exe("claude" if row["app"] == "claude-code" else "codex")
+        launch._exe({"claude-code": "claude", "codex-cli": "codex"}.get(row["app"], row["app"]))
         launch._workdir(ctx, row)
         if is_running(ctx.home, handle):
             raise RTError(CONFLICT, f"{handle} already runs in the background")
@@ -659,4 +704,4 @@ def request_stop(home: Path, handle: str, *, wait: float = 6.0) -> bool:
 
 def require_supported(row) -> None:
     if row["app"] not in SUPPORTED:
-        raise RTError(STATE, f"{row['handle']} runs in {row['app']}", "background runs work for Claude Code and Codex in a terminal")
+        raise RTError(STATE, f"{row['handle']} runs in {row['app']}", "background runs work for Claude Code, Codex and opencode")
