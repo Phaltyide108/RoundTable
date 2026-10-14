@@ -2174,7 +2174,7 @@ function welcomeScreen(st) {
             h("button", { class: x.can_run || info ? "" : "go", type: "button", onclick: e => startSeat(x, e.currentTarget) },
               icon(x.start.kind === "terminal" ? "terminal" : x.start.kind === "desktop" ? "desktop" : "code", "sm"), x.can_run ? "Open a terminal" : info ? "Start again" : startLabel(x))));
     })),
-    h("p", { class: "faint", text: "Background runs use your own Claude Code and Codex logins: sign in to each app once on this computer first. You can also go on now and start them later." }),
+    h("p", { class: "faint", text: "Background runs use your own Claude Code, Codex or opencode setup: sign in to each app once on this computer first (opencode's free models need no sign-in). You can also go on now and start them later." }),
     h("div", { class: "row" },
       h("button", { class: "go", type: "button", onclick: () => { ui.wstep = 3; go("#/welcome"); } }, "Next: give them a goal", icon("chevron", "sm")),
       h("button", { class: "ghost", type: "button", onclick: () => { ui.wstep = 1; go("#/welcome"); } }, icon("plus", "sm"), "Add another AI"),

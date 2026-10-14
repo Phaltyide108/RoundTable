@@ -7,6 +7,9 @@ Roundtable lets several AI models plan, build and review one project together th
 - `src/roundtable_ai/`: the package. Operations are plain functions registered with `@op` (see `registry.py`); the MCP server (`mcp_server.py`), the CLI (`cli.py`) and the dashboard (`dashboard.py`) all go through `dispatch.call`.
 - Storage: one SQLite file per project (`schema.py`, `db.py`); every state change happens in `with ctx.tx():` and emits exactly one event (`events.py`).
 - Git: per-seat working copies, task branches, the pre-commit guard and merges live in `gitops.py`.
+- Background runs of Claude Code, Codex and opencode: `runner.py` (headless commands, usage limits, handoffs) and `activity.py` (their event streams). Asking the table and second opinions: `council.py`. Each app's model list: `models.py`.
+- The app: `dashboard.py` (local server) + `ui/` (no framework, no build step); `window.py` opens it in its own window and writes the app-menu entry; `webview_gtk.py` is run by the system Python (GTK bindings), so it imports nothing from the package.
+- Benchmarks: `bench.py` and `bench/<task>/` (task.md, starter/, hidden/, meta.json); `tests/bench_reference/` holds references for the hidden tests.
 - `tests/`: pytest. Fixtures in `tests/conftest.py` (`rt`, `rt_nogit`, `repo`). Tests need no network, accounts or real apps.
 - `docs/cli.md` and `docs/mcp-tools.md` are generated: never edit them by hand.
 
