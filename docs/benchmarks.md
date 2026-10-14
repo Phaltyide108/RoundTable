@@ -20,8 +20,9 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-14 | sheet | Claude Opus 5.5 alone | 52/52 | 6.5 | 99,034 | |
 | 2026-10-14 | sheet | GPT-6.1 Sol alone | 52/52 | 20.7 | 91,968 | |
 | 2026-10-14 | sheet | Team: Opus + Sol | 0/52 merged; 52/52 unmerged | 40 (limit) | 138,798 | Opus built it in 5 min and its tests passed; Sol's review (2.5 min) asked for 4 fixes beyond the hidden tests; then Claude's 5-hour plan limit ran out, so the fixes never landed and nothing was merged. Led to the usage-limit handoff (below). |
-| 2026-10-14 | sql | GPT-6.1 Sol alone | 111/111 | 19.0 | | |
-| 2026-10-14 | sql | Claude Opus 5.5 alone | 111/111 | | | Scored 111/111 at minute 22 while still polishing |
+| 2026-10-14 | sql | GPT-6.1 Sol alone | 111/111 | 19.0 | 104,019 | |
+| 2026-10-14 | sql | Claude Opus 5.5 alone | 111/111 | 27.9 | 422,923 | Already 111/111 at minute 22; kept checking its own edge cases |
+| 2026-10-14 | sql | GPT-6 Luna (low thinking) alone | 110/111 | 2.3 | 78,823 | Missed one rule: a trailing `;` is allowed |
 
 Token counts are new tokens (input not read from cache, plus output) as the apps reported them.
 

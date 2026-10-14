@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-14)
 
 - **Ask the table.** Choose "Ask the table" in the message box (or `rt ask "..."`): every AI answers on its own, they rank each other's answers without names (Answer A, B, C), and the one whose answer the others ranked best writes the final answer, fixing what the reviews found wrong. They can read your project but change nothing. The conversation shows it live; a panel shows every answer, every review and how they ranked each other; "Build this" turns the answer into a goal, "Ask a follow-up" keeps the context. This is Andrej Karpathy's LLM Council, run with your own subscriptions and with your code open to it.
 - **Second opinions.** When a task fails its tests twice in a row, an AI from another company reads the failure in the builder's copy of the project and sends the builder a diagnosis it must answer (`council.rescue`, on by default).
