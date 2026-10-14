@@ -56,6 +56,8 @@ def make_repo(root: Path) -> Path:
 def _clean_env(monkeypatch, tmp_path_factory):
     for var in ("RT_HOME", "RT_SEAT", "RT_SEAT_KEY"):
         monkeypatch.delenv(var, raising=False)
+    # most tests use stand-in proof commands ("x", "pytest -q"); tests/test_runner_fixes.py checks this rule itself
+    monkeypatch.setenv("RT_PROOF_CHECK", "0")
     # never touch the real user's settings (recent projects, app configs)
     cfg = tmp_path_factory.mktemp("userconfig")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg / "xdg"))

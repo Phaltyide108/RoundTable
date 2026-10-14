@@ -20,8 +20,9 @@ from .tasks import KINDS
 
 GETTING_STARTED = """Roundtable {version}: several AI models plan, build and review one project together.
 
-The easy way: open the dashboard and click through it.
-  rt ui            opens it in your browser (it can also set up this folder)
+The easy way: open the app and click through it.
+  rt app           opens Roundtable in its own window (it can also set up this folder)
+  rt app --install adds it to your app menu, so next time you just click it
 
 The same from the terminal, in your project's main folder:
   rt init                                                    set up this folder
@@ -32,13 +33,13 @@ The same from the terminal, in your project's main folder:
   rt plan lock                                               you approve; they build
   rt status                                                  what needs you now
 
-All commands: rt --help    Something wrong: rt doctor    Guide: the Guide page in rt ui
+All commands: rt --help    Something wrong: rt doctor    Guide: Help in the app
 """
 
 HELP_GROUPS = """commands by purpose:
-  start here        ui, init, status, doctor
+  start here        app (or ui), init, status, doctor
   models            seat (add, set, list, pause, resume, release, remove), launch, run, setup
-  plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
+  plan and work     ask, goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
   problems          alert, vote, freeze, unfreeze
   follow along      log, usage, watch, export, compact, config, bench
   for apps          mcp, call
@@ -60,15 +61,15 @@ def _next_step_text() -> str | None:
         seats = ctx.db.scalar("SELECT COUNT(*) FROM seats WHERE status != 'removed'", default=0)
         plan = ctx.db.one("SELECT stage FROM plans WHERE stage NOT IN ('done','cancelled') ORDER BY id DESC LIMIT 1")
         if not seats:
-            nxt = "add models: rt ui (Models page), or rt seat add <name> --model <id> --app <app>"
+            nxt = "add models: rt app, or rt seat add <name> --model <id> --app <app>"
         elif plan is None:
-            nxt = 'give them a goal: rt ui (Plan page), or rt goal "what to build"'
+            nxt = 'give them a goal: rt app, or rt goal "what to build"'
         elif waiting:
             nxt = waiting[0]
         else:
-            nxt = "nothing waits on you; follow along with rt ui or rt status"
+            nxt = "nothing waits on you; follow along with rt app or rt status"
         name = ctx.setting("project", "name") or ctx.root.name
-        return f"Roundtable {__version__} · project {name}\nnext: {nxt}\n\ndashboard: rt ui    everything: rt status    help: rt --help"
+        return f"Roundtable {__version__} · project {name}\nnext: {nxt}\n\napp: rt app    everything: rt status    help: rt --help"
     finally:
         ctx.close()
 
@@ -303,9 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("watch", help="notify you and wake seats when needed")
     s.add_argument("--once", action="store_true")
     s.add_argument("--interval", type=int, default=15)
-    s = sub.add_parser("ui", help="local dashboard in your browser")
+    s = sub.add_parser("app", help="open Roundtable in its own window (--install adds it to your app menu)")
     s.add_argument("--port", type=int)
-    s.add_argument("--no-open", action="store_true")
+    s.add_argument("--browser", action="store_true", help="open it in your web browser instead of its own window")
+    s.add_argument("--foreground", action="store_true", help="keep this terminal attached until the window closes")
+    s.add_argument("--install", action="store_true", help="add Roundtable to your app menu (Linux, macOS, Windows)")
+    s.add_argument("--uninstall", action="store_true", help="take it out of the app menu again")
+    s = sub.add_parser("ui", help="the same as rt app: Roundtable in its own window")
+    s.add_argument("--port", type=int)
+    s.add_argument("--browser", action="store_true", help="open it in your web browser instead of its own window")
+    s.add_argument("--no-open", action="store_true", help="only start the dashboard server")
     sub.add_parser("mcp", help="run the MCP server (apps start this themselves)")
     s = sub.add_parser("call", help="run any operation: rt call task.show task=T3")
     s.add_argument("op")
@@ -564,10 +572,24 @@ def _run(args) -> int:
         from .watch import watch
 
         return watch(args.home, once=args.once, interval=args.interval)
-    if args.cmd == "ui":
+    if args.cmd == "app" and (args.install or args.uninstall):
+        from . import window
+
+        print("\n".join(window.install(remove=bool(args.uninstall))))
+        return 0
+    if args.cmd == "ui" and (args.no_open or args.browser):
         from .dashboard import run_dashboard
 
         return run_dashboard(args.home, port=args.port, open_browser=not args.no_open)
+    if args.cmd in ("app", "ui"):
+        from . import window
+
+        prefer = "browser" if args.browser else None
+        if getattr(args, "foreground", False):
+            return window.run(args.home, port=args.port, prefer=prefer)
+        pid = window.start_detached(args.home, port=args.port, prefer=prefer)
+        print(f"Roundtable opens in its own window (process {pid}). Add it to your app menu once with: rt app --install")
+        return 0
     route = _route(args)
     if route is None:
         raise RTError("invalid", f"unknown command {args.cmd}", "rt --help")

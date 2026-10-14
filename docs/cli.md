@@ -36,7 +36,9 @@ positional arguments:
     bench         does a team do better than one AI? same task, hidden tests
     doctor        check everything and suggest fixes
     watch         notify you and wake seats when needed
-    ui            local dashboard in your browser
+    app           open Roundtable in its own window (--install adds it to your
+                  app menu)
+    ui            the same as rt app: Roundtable in its own window
     mcp           run the MCP server (apps start this themselves)
     call          run any operation: rt call task.show task=T3
     version       print the version
@@ -51,9 +53,9 @@ options:
   --json          print JSON
 
 commands by purpose:
-  start here        ui, init, status, doctor
+  start here        app (or ui), init, status, doctor
   models            seat (add, set, list, pause, resume, release, remove), launch, run, setup
-  plan and work     goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
+  plan and work     ask, goal, plan, task (list, show, file, accept, edit, link, ...), review, memory
   problems          alert, vote, freeze, unfreeze
   follow along      log, usage, watch, export, compact, config, bench
   for apps          mcp, call
@@ -981,15 +983,31 @@ options:
   --interval INTERVAL
 ```
 
+## rt app
+
+```text
+usage: rt app [-h] [--port PORT] [--browser] [--foreground] [--install]
+              [--uninstall]
+
+options:
+  -h, --help    show this help message and exit
+  --port PORT
+  --browser     open it in your web browser instead of its own window
+  --foreground  keep this terminal attached until the window closes
+  --install     add Roundtable to your app menu (Linux, macOS, Windows)
+  --uninstall   take it out of the app menu again
+```
+
 ## rt ui
 
 ```text
-usage: rt ui [-h] [--port PORT] [--no-open]
+usage: rt ui [-h] [--port PORT] [--browser] [--no-open]
 
 options:
   -h, --help   show this help message and exit
   --port PORT
-  --no-open
+  --browser    open it in your web browser instead of its own window
+  --no-open    only start the dashboard server
 ```
 
 ## rt mcp

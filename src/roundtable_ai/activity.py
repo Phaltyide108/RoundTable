@@ -108,8 +108,7 @@ def from_claude(ev: dict, root: str | None = None) -> list[dict]:
                 content = block.get("content")
                 if isinstance(content, list):
                     content = " ".join(str(c.get("text", "")) for c in content if isinstance(c, dict))
-                first = str(content or "").strip().splitlines()[:1]
-                out.append({"kind": "error", "text": _clip(first[0] if first else "a step failed", 300)})
+                out.append({"kind": "error", "text": _clip(_error_line(content), 300)})
     elif t == "result":
         if ev.get("is_error") or (ev.get("subtype") and ev.get("subtype") != "success"):
             out.append({"kind": "error", "text": _clip(ev.get("result") or ev.get("subtype") or "the run failed", 400)})
@@ -122,6 +121,16 @@ def from_claude(ev: dict, root: str | None = None) -> list[dict]:
     return out
 
 
+def _error_line(content: Any) -> str:
+    """The useful line of a failed step: skips Roundtable's inbox line and joins "Exit code N" with what follows."""
+    lines = [x.strip() for x in str(content or "").splitlines() if x.strip() and not x.strip().startswith("[rt:")]
+    if not lines:
+        return "a step failed"
+    if re.fullmatch(r"Exit code \d+", lines[0]) and len(lines) > 1:
+        return f"{lines[0]}: {lines[1]}"
+    return lines[0]
+
+
 # ---------------------------------------------------------------- Codex (exec --json and session logs)
 
 def _codex_command(cmd: Any) -> str:
@@ -129,7 +138,18 @@ def _codex_command(cmd: Any) -> str:
         if len(cmd) >= 3 and cmd[0] in ("bash", "sh", "zsh", "/bin/bash", "/bin/sh") and cmd[1] in ("-lc", "-c"):
             return str(cmd[2])
         return " ".join(str(c) for c in cmd)
-    return str(cmd or "")
+    text = str(cmd or "")
+    m = re.match(r"^(?:/usr)?(?:/bin/)?(?:ba|z)?sh -l?c (.+)$", text, re.S)
+    if m:
+        import shlex
+
+        try:
+            parts = shlex.split(m.group(1))
+            if len(parts) == 1:
+                return parts[0]
+        except ValueError:
+            pass
+    return text
 
 
 def from_codex_exec(ev: dict, root: str | None = None) -> list[dict]:
@@ -151,6 +171,16 @@ def from_codex_exec(ev: dict, root: str | None = None) -> list[dict]:
             return [{"kind": "run", "text": _clip(_codex_command(item.get("command")), 600)}]
         code = item.get("exit_code")
         return [{"kind": "error", "text": f"command failed (exit {code}): {_clip(_codex_command(item.get('command')), 200)}"}] if code not in (None, 0) else []
+    if t == "item.completed" and it == "mcp_tool_call":
+        res = item.get("result") if isinstance(item.get("result"), dict) else {}
+        if item.get("error") or res.get("isError") or res.get("is_error"):
+            err = item.get("error")
+            if isinstance(err, dict):
+                err = err.get("message")
+            if not err:
+                err = " ".join(str(c.get("text", "")) for c in res.get("content") or [] if isinstance(c, dict))
+            return [{"kind": "error", "text": _clip(_error_line(err), 300)}]
+        return []
     if t != "item.completed":
         if it == "mcp_tool_call":
             return [{"kind": "tool", "text": " ".join(x for x in (str(item.get("tool") or ""), _mcp_args(item.get("arguments"))) if x)}]

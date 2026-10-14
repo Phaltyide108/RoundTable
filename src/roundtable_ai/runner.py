@@ -44,6 +44,8 @@ ALIVE_SECONDS = 25
 POLL_SECONDS = 3
 BACKOFF_START = 60
 BACKOFF_MAX = 30 * 60
+CONTINUE_SECONDS = 20     # the same work is still open after a run that did something
+SAME_WORK_RUNS = 3        # ... at most this many times in a row, then it counts as stuck
 SUPPORTED = ("claude-code", "codex-cli")
 
 SAFE_TOOLS = ["mcp__roundtable", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "TodoWrite",
@@ -145,8 +147,10 @@ def pending(ctx, handle: str, seen_note: str = "") -> list[tuple[str, str]]:
     c = inbox.counts(ctx, handle)
     out: list[tuple[str, str]] = []
     if c["plan"]:
-        p = ctx.db.one("SELECT id, stage, version FROM plans WHERE stage NOT IN ('done','cancelled') ORDER BY id DESC LIMIT 1")
-        out.append((f"plan:{p['id'] if p else ''}:{p['stage'] if p else ''}:{p['version'] if p else ''}", c["plan"]))
+        p = ctx.db.one("SELECT id, stage, version, goal FROM plans WHERE stage NOT IN ('done','cancelled') ORDER BY id DESC LIMIT 1")
+        goal = f" for this goal (the human's words, in full): «{util.one_line(p['goal'], 1500)}»" if p else ""
+        out.append((f"plan:{p['id'] if p else ''}:{p['stage'] if p else ''}:{p['version'] if p else ''}",
+                    f"{c['plan']}{goal}; rt_plan view shows how"))
     for a in c["alerts"]:
         out.append((f"alert:{a['id']}", f"acknowledge problem {a['id']} (level {a['level']}): {a['title']}"))
     for key, label in (("reviews", "review"), ("critiques", "critique"), ("suggestions", "suggestion"),
@@ -156,6 +160,8 @@ def pending(ctx, handle: str, seen_note: str = "") -> list[tuple[str, str]]:
     roles = seats.roles_of(row)
     mine = ctx.db.all("SELECT id, status, title FROM tasks WHERE owner = ? AND status IN ('claimed','changes_requested') ORDER BY priority, seq", (handle,))
     for t in mine:
+        if _waiting_on_others(ctx, handle, t["id"]):
+            continue        # it asked for a change or raised a problem about this task: wake it when that is settled
         what = "fix the review notes on" if t["status"] == "changes_requested" else "finish"
         out.append((f"task:{t['id']}:{t['status']}", f"{what} {t['id']}: {t['title']}"))
     if "build" in roles and not mine:
@@ -169,6 +175,15 @@ def pending(ctx, handle: str, seen_note: str = "") -> list[tuple[str, str]]:
     for n in _new_human_notes(ctx, seen_note):
         out.append((f"note:{n['id']}", f"the human wrote to the team: «{util.one_line(n['text'], 300)}»"))
     return out
+
+
+def _waiting_on_others(ctx, handle: str, task_id: str) -> bool:
+    if ctx.db.one("SELECT 1 FROM amendments WHERE task = ? AND proposed_by = ? AND status = 'pending'", (task_id, handle)):
+        return True
+    for a in ctx.db.all("SELECT tasks FROM alerts WHERE raised_by = ? AND status = 'open' AND level >= 3", (handle,)):
+        if task_id in util.jload(a["tasks"], []):
+            return True
+    return False
 
 
 def _assign_sig(ctx, handle: str, key: str) -> str:
@@ -282,7 +297,8 @@ def _parse_line(app: str, line: str, root: str) -> tuple[list[dict], dict]:
             facts["session"] = ev["session_id"]
         if ev.get("type") == "result":
             u = ev.get("usage") or {}
-            facts["tokens"] = int(u.get("input_tokens") or 0) + int(u.get("output_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0)
+            # new tokens only: cache reads repeat the same context on every step and would count it many times over
+            facts["tokens"] = int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0) + int(u.get("output_tokens") or 0)
             facts["cost"] = ev.get("total_cost_usd")
             facts["error"] = bool(ev.get("is_error"))
         if ev.get("type") == "rate_limit_event":
@@ -292,7 +308,8 @@ def _parse_line(app: str, line: str, root: str) -> tuple[list[dict], dict]:
         facts["session"] = ev["thread_id"]
     if ev.get("type") == "turn.completed":
         u = ev.get("usage") or {}
-        facts["tokens"] = int(u.get("input_tokens") or 0) + int(u.get("output_tokens") or 0)
+        fresh = max(0, int(u.get("input_tokens") or 0) - int(u.get("cached_input_tokens") or 0))
+        facts["tokens"] = fresh + int(u.get("output_tokens") or 0)
     if ev.get("type") in ("turn.failed", "error"):
         facts["error"] = True
     return activity.from_codex_exec(ev, root), facts
@@ -357,6 +374,9 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
                 facts.update({k: v for k, v in f.items() if v is not None})
                 if items:
                     activity.append(ctx.home, handle, items)
+                    said = [i["text"] for i in items if i.get("kind") in ("say", "done") and i.get("text")]
+                    if said:
+                        facts["last_say"] = said[-1]
                 if should_stop():
                     _kill(proc)
                     facts["stopped"] = True
@@ -486,14 +506,20 @@ def run_seat(home: str | Path | None, handle: str, *, once: bool = False, max_ru
                 _save_usage(home_path, handle, row, facts)
                 after = pending(ctx, handle, state["seen_note"])
                 changed = hashlib.sha1("|".join(sorted(k for k, _t in after)).encode()).hexdigest() != sig
-                progressed = _seat_events(ctx, handle) > before or changed or all(k.startswith("note:") for k, _t in work)
-                if progressed:
-                    backoff, last_sig = 0, ""
+                acted = _seat_events(ctx, handle) > before
+                if changed or all(k.startswith("note:") for k, _t in work):
+                    backoff, last_sig, state["same_runs"] = 0, "", 0
                     _set(state, "waiting", "waiting for work")
+                elif acted and int(state.get("same_runs") or 0) < SAME_WORK_RUNS:
+                    # it did something but the same work is still open (a long task): continue shortly, not at once
+                    state["same_runs"] = int(state.get("same_runs") or 0) + 1
+                    last_sig, next_try = sig, time.time() + CONTINUE_SECONDS
+                    _set(state, "waiting", "continuing shortly")
                 else:
+                    state["same_runs"] = 0
                     backoff = BACKOFF_START if not backoff else min(BACKOFF_MAX, backoff * 2)
                     last_sig, next_try = sig, time.time() + backoff
-                    why = facts.get("error_text") or ("the run ended without doing anything on the table")
+                    why = facts.get("error_text") or facts.get("last_say") or "the run ended without doing anything on the table"
                     state["error"] = util.one_line(why, 300)
                     _set(state, "stuck", f"stuck: {util.one_line(why, 160)} · trying again in {backoff // 60} min")
                 if max_runs and state["runs"] >= max_runs:

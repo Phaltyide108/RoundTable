@@ -13,6 +13,7 @@ import json
 import secrets
 import socketserver
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -201,6 +202,7 @@ def make_handler(session: Session, token: str, port_ref: dict):
             self._json(200, out)
 
         def do_GET(self) -> None:
+            port_ref["last"] = time.time()
             if not self._host_ok():
                 return self._json(403, {"ok": False, "message": "bad host"})
             url = urlparse(self.path)
@@ -248,6 +250,7 @@ def make_handler(session: Session, token: str, port_ref: dict):
             return self._json(404, {"ok": False, "message": "not found"})
 
         def do_POST(self) -> None:
+            port_ref["last"] = time.time()
             if not self._host_ok():
                 return self._json(403, {"ok": False, "message": "bad host"})
             origin = self.headers.get("Origin")
@@ -292,19 +295,21 @@ class _LocalServer(ThreadingHTTPServer):
 
 
 def serve(home, port: int, *, open_browser: bool = True, ready: threading.Event | None = None, server_ref: dict | None = None,
-          folder: Path | None = None) -> int:
+          folder: Path | None = None, quiet: bool = False) -> int:
     from .paths import project_root
 
     session = Session(Path(home) if home else None, Path(folder) if folder else (project_root(Path(home)) if home else Path.cwd()))
     if session.home is not None:
         session.switch(session.home)
     token = secrets.token_urlsafe(24)
-    port_ref = {"port": port}
+    port_ref: dict[str, Any] = server_ref if server_ref is not None else {}
+    port_ref["port"] = port
     httpd = None
     for p in range(port, port + 20):
         try:
             port_ref["port"] = p
             httpd = _LocalServer(("127.0.0.1", p), make_handler(session, token, port_ref))
+            port_ref["port"] = httpd.server_port      # the real one when asked for port 0
             break
         except OSError:
             continue
@@ -313,7 +318,8 @@ def serve(home, port: int, *, open_browser: bool = True, ready: threading.Event 
     if server_ref is not None:
         server_ref.update({"httpd": httpd, "port": port_ref["port"], "token": token, "session": session})
     url = f"http://127.0.0.1:{port_ref['port']}/"
-    print(f"Roundtable dashboard: {url}  (only this computer can open it; Ctrl+C to stop)")
+    if not quiet:
+        print(f"Roundtable dashboard: {url}  (only this computer can open it; Ctrl+C to stop)")
     if open_browser:
         try:
             webbrowser.open(url)
@@ -330,7 +336,8 @@ def serve(home, port: int, *, open_browser: bool = True, ready: threading.Event 
     return 0
 
 
-def run_dashboard(home: str | None = None, *, port: int | None = None, open_browser: bool = True) -> int:
+def run_dashboard(home: str | None = None, *, port: int | None = None, open_browser: bool = True,
+                  ready: threading.Event | None = None, server_ref: dict | None = None, quiet: bool = False) -> int:
     """Open the dashboard on this project, or on the set-up screen if there is none here yet."""
     from .context import open_ctx
     from .paths import resolve_home_arg
@@ -346,11 +353,11 @@ def run_dashboard(home: str | None = None, *, port: int | None = None, open_brow
         except RTError:
             h = None
         if h is not None and (h / "roundtable.db").exists():
-            return serve(h, port or DEFAULT_PORT, open_browser=open_browser)
-        return serve(None, port or DEFAULT_PORT, open_browser=open_browser, folder=folder)
+            return serve(h, port or DEFAULT_PORT, open_browser=open_browser, ready=ready, server_ref=server_ref, quiet=quiet)
+        return serve(None, port or DEFAULT_PORT, open_browser=open_browser, folder=folder, ready=ready, server_ref=server_ref, quiet=quiet)
     try:
         h = ctx.home
         p = port or ctx.setting("dashboard", "port")
     finally:
         ctx.close()
-    return serve(h, p, open_browser=open_browser)
+    return serve(h, p, open_browser=open_browser, ready=ready, server_ref=server_ref, quiet=quiet)

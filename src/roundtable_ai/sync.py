@@ -76,7 +76,7 @@ def digest(ctx, handle: str, move_bookmark: bool = True, full: bool = False) -> 
     for a in c["alerts"]:
         todo.append(f"ack alert {a['id']} L{a['level']}: {a['title']}")
     if c["plan"]:
-        todo.append(c["plan"])
+        todo.append(c["plan"] + " -> rt_plan view first: it has the full goal and how to do it")
     for s in ctx.db.all("SELECT id, task, from_seat FROM suggestions WHERE to_seat = ? AND status = 'open' ORDER BY id", (handle,)):
         todo.append(f"reply to suggestion {s['id']} from {s['from_seat']}" + (f" on {s['task']}" if s["task"] else ""))
     for a in ctx.db.all("SELECT kind, target FROM assignments WHERE seat = ? AND status = 'open' ORDER BY id", (handle,)):

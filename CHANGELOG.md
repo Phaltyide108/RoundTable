@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Roundtable is an app now.** `rt app` (and `rt ui`) opens it in its own window instead of a browser tab: a native GTK/WebKit window on Linux, otherwise Chrome, Edge or Brave in app mode (no tabs, no address bar), with your default browser only as a last resort. `rt app --install` adds it to your app menu (Linux), Launchpad (macOS) or the Start menu (Windows), with its own icon. Started from the menu, it finds `claude` and `codex` on your terminal's PATH and opens your most recent project. `rt ui --browser` keeps the old way.
+- Tested for real with Claude Code 2.1.299 and Codex 0.159 running in the background, which found and fixed:
+  - Codex refused every Roundtable tool in background runs ("approval policy is never"). Roundtable's tools are now pre-approved for Codex (`default_tools_approval_mode`), also in `rt setup codex`.
+  - In quick mode the planning AI saw the goal cut at 80 characters and dropped the parts meant for other AIs. It now gets the whole goal and is told to keep every named part with its AI.
+  - Test commands that cannot run on this computer (`python` when only `python3` exists, pytest not installed) are refused when the plan is written, with the fix, instead of failing after the work is done.
+  - An AI waiting for a change it asked for (or a problem it raised) was woken again and again; it now waits until that is settled. The same work is resumed at most 3 times in a row before it counts as stuck, and "stuck" shows the AI's own last words.
+  - Token counts no longer count cached context again on every step.
+  - Activity shows the real error instead of Roundtable's inbox line, Codex tool errors, and Codex commands without their `bash -lc` wrapper.
+
 ## 0.3.0 (2026-10-14)
 
 - **Background runs.** Roundtable now starts Claude Code and Codex by itself, with your own logins, whenever an AI has work, and lets it sleep when it is done (`rt run <seat>`, or **Run in the background** in the dashboard). Nothing waits any more for someone to type "check roundtable". Runs continue the same session, back off when stuck and say why, stop at a time limit, and only edit their own working copy, use git and run the project's tests unless you allow more (`runner.permissions`).

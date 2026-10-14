@@ -26,6 +26,43 @@ FINAL = ("passed", "failed", "timeout", "error")
 INLINE_ENV = "RT_PROOF_INLINE"  # tests: run in-process instead of detaching
 
 
+SHELL_WORDS = {"cd", "export", "set", "test", "[", "true", "false", "echo", "exit", "env", "time", "!", "if", "for"}
+
+
+def proof_problem(cmd: str) -> str | None:
+    """Why this proof command cannot run on this computer, if it obviously cannot (missing program or pytest),
+    so a plan is fixed before anyone builds on it instead of failing after the work is done."""
+    import re
+    import shlex
+    import shutil
+
+    if os.environ.get("RT_PROOF_CHECK") == "0":
+        return None
+    first = re.split(r"\s*(?:&&|\|\||;|\|)\s*", cmd.strip(), maxsplit=1)[0]
+    try:
+        words = shlex.split(first, posix=os.name != "nt")
+    except ValueError:
+        return None
+    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+        words = words[1:]
+    if not words or words[0] in SHELL_WORDS or "/" in words[0] or "\\" in words[0]:
+        return None
+    prog = words[0]
+    if not shutil.which(prog):
+        alt = {"python": "python3", "pip": "pip3", "python3": "python"}.get(prog)
+        better = f"; use `{alt}`" if alt and shutil.which(alt) else ""
+        return f"`{prog}` is not installed on this computer{better}"
+    if len(words) >= 3 and words[1] == "-m" and words[2] == "pytest" and re.match(r"python[\d.]*(\.exe)?$", Path(prog).name):
+        try:
+            found = subprocess.run([shutil.which(prog), "-c", "import pytest"], capture_output=True, timeout=20).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if not found:
+            uv = " or `uv run --with pytest -- python -m pytest ...`" if shutil.which("uv") else ""
+            return f"pytest is not installed for `{prog}`; use `{prog} -m unittest ...`{uv}"
+    return None
+
+
 def _workdir(ctx, task_row) -> Path:
     from . import gitops, seats
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import events, fmt, util
+from . import events, fmt, proofs, util
 from .errors import CONFLICT, FORBIDDEN, INVALID, NOT_FOUND, STATE, RTError
 from .registry import ANY, HUMAN, Param, Result, op
 
@@ -123,6 +123,10 @@ def validate_specs(ctx, specs) -> list[dict]:
                           'add a command that shows it works, e.g. "pytest tests/test_auth.py" or "npm test"')
         for c in proof:
             util.cap_chars(c, 500, f"{where} proof command")
+            why = proofs.proof_problem(c)
+            if why:
+                raise RTError(INVALID, f"{where}: its proof command can't run here: {why}",
+                              "give a proof command that runs on this computer (the error says what to change)")
         owner = raw.get("owner")
         owner = util.check_handle(owner) if owner else None
         if owner and owner not in builders:

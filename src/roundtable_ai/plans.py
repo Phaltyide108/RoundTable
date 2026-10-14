@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 
-from . import events, fmt, util
+from . import events, fmt, proofs, util
 from .context import HUMAN
 from .errors import CONFLICT, FORBIDDEN, INVALID, NOT_FOUND, STATE, RTError
 from .registry import ANY, HUMAN as WHO_HUMAN, Param, Result, op
@@ -310,8 +310,14 @@ def view(ctx, draft=None) -> Result:
             lines.append("responses: " + "; ".join(f"{v['seat']} {v['decision']}" + (f" ({util.one_line(v['reason'], 60)})" if v["reason"] else "") for v in votes))
     if p["stage"] == "merging" and me == p["chair"]:
         if _mode(p) == "quick":
+            from . import seats as seats_mod
+
+            builders = ", ".join(r["handle"] for r in seats_mod.active(ctx, "build")) or "none"
             lines.append("quick mode: you alone break the goal into tasks now -> rt_plan propose text=... tasks=[...]. "
-                         "If the goal names seats for parts of the work, make them the owners; otherwise spread the work across the builders.")
+                         "Cover the WHOLE goal: every part of it becomes a task, including parts meant for other seats. "
+                         "A part the goal gives to a seat (e.g. 'sol: ...') is a task with that seat as owner: never drop it or take it yourself. "
+                         "Use the file names the goal gives. Other work is spread across the builders: " + builders + ". "
+                         "Proof commands must run on this computer as they are (check what is installed, e.g. python3 vs python, pytest).")
         else:
             lines.append("you chair: merge the drafts and critiques -> rt_plan propose text=... tasks=[...]")
     if p["stage"] == "proposed" and not human and me != p["chair"]:
@@ -570,6 +576,10 @@ def _apply(ctx, m) -> str:
         proof = [util.require_text(c, "proof command") for c in util.as_list(pl.get("proof"), "proof")]
         if not proof:
             raise RTError(INVALID, "a task needs at least one proof command")
+        for c in proof:
+            why = proofs.proof_problem(c)
+            if why:
+                raise RTError(INVALID, f"that proof command can't run here: {why}", "give a command that runs on this computer")
         ctx.db.execute("UPDATE tasks SET proof = ?, updated_at = ? WHERE id = ?", (util.jdump(proof), now, t["id"]))
     elif kind == "remove_dep":
         dep = tasks_mod.norm_id(pl.get("depends_on"))
@@ -614,6 +624,10 @@ def amend(ctx, kind, change, reason, task=None) -> Result:
         needs = sorted(({p["chair"]} | owners) - {me})
         if kind == "change_proof":
             needs.append(HUMAN)
+            for c in util.as_list(change.get("proof"), "proof"):
+                why = proofs.proof_problem(str(c))
+                if why:
+                    raise RTError(INVALID, f"that proof command can't run here: {why}", "give a command that runs on this computer")
     with ctx.tx():
         mid = util.next_id(ctx.db, "amendment", "M")
         ctx.db.execute("INSERT INTO amendments(id, plan_id, proposed_by, kind, task, payload, reason, status, needs, created_at) VALUES (?,?,?,?,?,?,?, 'pending', ?, ?)",

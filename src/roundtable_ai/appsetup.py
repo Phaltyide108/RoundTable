@@ -294,6 +294,8 @@ def _toml_block(name: str, home: Path, seat: str | None = None) -> str:
         f"args = {toml_value(args)}",
         "startup_timeout_sec = 30",
         "tool_timeout_sec = 120",
+        "# Roundtable's tools only touch the shared table: no approval prompt for each call",
+        'default_tools_approval_mode = "approve"',
         "",
         f"[mcp_servers.{name}.env]",
     ]

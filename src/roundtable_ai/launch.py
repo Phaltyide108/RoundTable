@@ -71,7 +71,10 @@ def _codex_overrides(ctx, handle: str) -> list[str]:
     env = "{" + ", ".join(f"{k} = {toml_value(v)}" for k, v in (("RT_HOME", str(ctx.home)), ("RT_SEAT", handle))) + "}"
     out = []
     for k, v in (("command", toml_value(cmd)), ("args", toml_value(args)), ("env", env),
-                 ("startup_timeout_sec", "30"), ("tool_timeout_sec", "120")):
+                 ("startup_timeout_sec", "30"), ("tool_timeout_sec", "120"),
+                 # without this, `codex exec` refuses every Roundtable tool call ("approval policy is never");
+                 # checked with codex-cli 0.159
+                 ("default_tools_approval_mode", toml_value("approve"))):
         out += ["-c", f"mcp_servers.{name}.{k}={v}"]
     return out
 
