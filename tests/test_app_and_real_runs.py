@@ -223,3 +223,13 @@ def test_setup_screen_in_the_home_folder_offers_choosing_a_project(tmp_path, mon
     assert ui_state.setup_state(tmp_path)["setup"]["is_home"] is True
     (tmp_path / "proj").mkdir()
     assert ui_state.setup_state(tmp_path / "proj")["setup"]["is_home"] is False
+
+
+def test_folder_chooser_command_per_platform():
+    from roundtable_ai import desktop
+
+    assert desktop.folder_picker_command("Pick", "/home/a", platform="darwin")[0] == "osascript"
+    assert desktop.folder_picker_command("Pick", "C:\\Users\\a", platform="win32")[0] == "powershell"
+    has = lambda names: (lambda n: f"/usr/bin/{n}" if n in names else None)  # noqa: E731
+    assert desktop.folder_picker_command("Pick", "/home/a", platform="linux", which=has({"zenity"}))[:3] == ["zenity", "--file-selection", "--directory"]
+    assert desktop.folder_picker_command("Pick", "/home/a", platform="linux", which=has({"kdialog"}))[0] == "kdialog"
