@@ -9,6 +9,7 @@ Run them yourself: `rt bench run --task sheet` or `rt bench run --task sql`, and
 | Task | What it asks | Hidden tests | How they are checked |
 | --- | --- | --- | --- |
 | `sheet` | A spreadsheet engine: formulas with precedence, ranges, functions, errors that spread, cycles, recalculation | 52 | Expected values written by hand |
+| `pond` | A living 3D koi pond in three.js: a wave-equation water surface (ripples spread, reflect, fade; clicks make them), at least 15 koi schooling with boids rules, food they chase and eat, lily pads riding the waves | 25 | Run in headless Chrome: checks through a small `window.pond` test interface (fish stay inside, keep apart, align, chase food; ripples rise, spread, fade; lily pads follow the water), plus script errors, a real picture, window resizes. A screenshot of each contender's pond is saved next to the report |
 | `sql` | A SQL engine (CREATE, INSERT, SELECT with joins, GROUP BY, HAVING, ORDER BY, LIMIT, UPDATE, DELETE) that must give exactly SQLite's answers: NULL logic, integer division, `%` with reals, type affinity on insert, mixed-type ordering, `||` binding tighter than `*` | 111 | Every query runs on real SQLite too; answers must match, int versus real included. Code that hands the work to `sqlite3` scores 0 |
 
 ## Results
@@ -23,6 +24,10 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-14 | sql | GPT-6.1 Sol alone | 111/111 | 19.0 | 104,019 | |
 | 2026-10-14 | sql | Claude Opus 5.5 alone | 111/111 | 27.9 | 422,923 | Already 111/111 at minute 22; kept checking its own edge cases |
 | 2026-10-14 | sql | GPT-6 Luna (low thinking) alone | 110/111 | 2.3 | 78,823 | Missed one rule: a trailing `;` is allowed |
+| 2026-10-14 | sql | Team: Opus + Sol | 0/111 merged | 45 (limit) | 218,429 | Claude ran out of usage 2 minutes in; its planned tasks stayed reserved for it, so Sol finished its own tasks and waited. Led to handing over planned tasks too. |
+| 2026-10-15 | sql | Claude Haiku 5.5 (low thinking) alone | 111/111 | 4.7 | | Even the smallest Claude model gets this specification fully right alone |
+| 2026-10-15 | sql | Team: Haiku + Luna (low) | stopped | | | All five tasks started at once and each proof ran the whole suite, so none could pass before the others merged; stopped and fixed (each task now tests only its part and depends on what it imports) |
+| 2026-10-15 | pond | GPT-6 Luna (low thinking) alone | 14/25 | 1.4 | 54,816 | Looks good at a glance, but its water is a square sheet sticking out of the round pond, and its simulation turns to NaN (fish, waves, food all break) |
 
 Token counts are new tokens (input not read from cache, plus output) as the apps reported them.
 
