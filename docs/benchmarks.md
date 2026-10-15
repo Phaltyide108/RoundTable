@@ -11,6 +11,8 @@ Run them yourself: `rt bench run --task sheet` or `rt bench run --task sql`, and
 | `sheet` | A spreadsheet engine: formulas with precedence, ranges, functions, errors that spread, cycles, recalculation | 52 | Expected values written by hand |
 | `pond` | A living 3D koi pond in three.js: a wave-equation water surface (ripples spread, reflect, fade; clicks make them), at least 15 koi schooling with boids rules, food they chase and eat, lily pads riding the waves | 25 | Run in headless Chrome: checks through a small `window.pond` test interface (fish stay inside, keep apart, align, chase food; ripples rise, spread, fade; lily pads follow the water), plus script errors, a real picture, window resizes. A screenshot of each contender's pond is saved next to the report |
 | `pondpro` | The pond measured against exact physics: waves at 2.0 m/s, amplitude halving every 3 s, stable under 60 strong ripples, fish 0.4 m apart turning at most 3 rad/s, stones, a heron they flee, pellets that float 2 s then sink at 0.25 m/s, 200 fish fast enough, seeded determinism | 32 | Same as `pond`, with each number measured within a tolerance |
+| `quiz` | 30 tricky questions with exact answers (counting traps, modular arithmetic, clock angles, letter counting) | 30 | Exact answers. One AI alone answers in one read-only run; a team answers by asking the table |
+| `quizhard` | 30 competition-style questions (inclusion-exclusion, derangements, base-12 trailing zeros, chord regions, ...) | 30 | Every answer computed by a program |
 | `sql` | A SQL engine (CREATE, INSERT, SELECT with joins, GROUP BY, HAVING, ORDER BY, LIMIT, UPDATE, DELETE) that must give exactly SQLite's answers: NULL logic, integer division, `%` with reals, type affinity on insert, mixed-type ordering, `||` binding tighter than `*` | 111 | Every query runs on real SQLite too; answers must match, int versus real included. Code that hands the work to `sqlite3` scores 0 |
 
 ## Results
@@ -35,6 +37,13 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-15 | pondpro | Claude Haiku 5.5 (low) alone | 31/32 | 8.1 | 234,731 | Missed only "fleeing fish speed up past 2 m/s" (the spec said "up to 3 m/s"; now explicit) |
 | 2026-10-15 | pondpro | GPT-6 Luna (low) alone | 26/32 | 1.2 | 38,640 | Fish turn instantly (187 rad/s, limit 3) and barely school; waves too slow (2.65 s to 4 m) and fade too slowly; the water blows up to 7.5 m waves; fleeing not faster |
 | 2026-10-15 | pondpro | Team: Haiku + Luna (low) | 31/32 | 9.9 | 803,364 | None of Luna's six failures; the same fleeing-speed miss as Haiku |
+| 2026-10-15 | quiz | Claude Haiku 5.5 (low) alone | 30/30 | 0.2 | 12,958 | |
+| 2026-10-15 | quiz | GPT-6 Luna (low) alone | 23/30 | 0.3 | 3,868 | |
+| 2026-10-15 | quiz | Team (asking the table) | 30/30 | 0.6 | 51,929 | |
+| 2026-10-15 | quizhard | Haiku alone / Luna alone / team, first council | 29 / 26 / 29 | | 28k / 19k / 100k | Luna had Q14 right, Haiku wrong; the team kept Haiku's wrong answer. Led to the two council changes below |
+| 2026-10-15 | quizhard | Haiku alone, 3 runs | 28, 29, 29 | 0.3-0.5 | ~16k each | |
+| 2026-10-15 | quizhard | Luna alone, 3 runs | 17, 17, 18 | 0.1 | 2-5k each | |
+| 2026-10-15 | quizhard | **Team, 3 runs** | **30, 30, 30** | ~2 | ~76k each | Better than its best member in every run |
 
 Token counts are new tokens (input not read from cache, plus output) as the apps reported them.
 
@@ -46,6 +55,12 @@ Token counts are new tokens (input not read from cache, plus output) as the apps
 4. **Planning shape matters for speed.** The quick planner made the second AI's test-writing task wait for the first AI's code, so it sat idle for the first minutes. Quick plans are now told to let independent work run in parallel.
 
 5. **A team is as good as its best member, and much better than its weakest.** On the pond, Luna alone broke (its simulation turned into NaN; the owner, clicking the water, saw it "go dry"), Haiku alone passed everything, and the two together passed everything. That is a real gain over Luna, not over Haiku, and it cost about ten times Luna's tokens.
+
+6. **Combining models can beat the best one, once the council is set up for it.** On the hard quiz the first council only matched Haiku: Luna's review had question 14 right, but Haiku wrote the final answer and kept its own wrong formula (one vote each). Two changes fixed that: Roundtable now lists the exact items where numbered answers disagree and has the reviewers and the final writer work each out again, and council members may check numbers with `python -c` (Codex stays in its read-only sandbox). After that the team scored 30/30 in three runs out of three, against 28-29 for Haiku alone and 17-18 for Luna alone, at about 4.5 times Haiku's tokens.
+
+## Tokens
+
+A team always uses more tokens than one model: both read the task, and one checks the other. Measured overheads were much larger than that, though, and two of them are now cut: a background run no longer resumes a conversation whose prompt cache has gone cold (one model had spent 666k tokens re-reading its own history), and plans are kept to about one task per builder, since every task costs a run and a review. Choosing Light checking removes reviews entirely.
 
 ## Next
 
