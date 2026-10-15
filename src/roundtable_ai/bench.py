@@ -172,6 +172,8 @@ def forbidden_imports(task: str, folder: Path) -> list[str]:
 
 
 def count_hidden(task: str) -> int:
+    if meta(task)["kind"] == "quiz":
+        return len(quiz_questions(task))
     if meta(task)["kind"] == "browser":
         return len(meta(task)["checks"])
     text = (TASKS_DIR / task / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
@@ -181,6 +183,9 @@ def count_hidden(task: str) -> int:
 def score(task: str, folder: Path, timeout: int = 300, *, check_forbidden: bool = True) -> dict[str, Any]:
     """Run the hidden tests against the code in `folder` (never inside it: in a copy)."""
     total = count_hidden(task)
+    if meta(task)["kind"] == "quiz":
+        f = Path(folder) / "answers.txt"
+        return score_quiz(task, f.read_text(encoding="utf-8") if f.exists() else "")
     if meta(task)["kind"] == "browser":
         from . import bench_browser
 
@@ -211,6 +216,77 @@ def score(task: str, folder: Path, timeout: int = 300, *, check_forbidden: bool 
     if any(f.startswith("_FailedTest") or "_FailedTest" in f for f in failed):
         return {"passed": 0, "total": total, "failed": [f"(the code could not be imported: {meta(task)['module']} is missing or broken)"]}
     return {"passed": max(0, data["run"] - len(failed)), "total": max(total, data["run"]), "failed": failed}
+
+
+# ---------------------------------------------------------------- quiz: questions with exact answers
+
+def quiz_questions(task: str) -> list[dict[str, Any]]:
+    return json.loads((TASKS_DIR / task / "questions.json").read_text(encoding="utf-8"))
+
+
+def quiz_prompt(task: str) -> str:
+    qs = quiz_questions(task)
+    return (f"Answer all {len(qs)} questions below. Think carefully, but write no working: reply with exactly one line per question, "
+            "in the form `<number>: <answer>` (a number, a fraction in lowest terms like 2/9, or one word), and nothing else.\n\n"
+            + "\n".join(f"{i}. {q['q']}" for i, q in enumerate(qs, 1)))
+
+
+def _norm_answer(text: str) -> str:
+    t = str(text or "").strip().lower().strip("`*_ ").rstrip(".")
+    t = re.sub(r"\s*(degrees?|°|minutes?|ways?)$", "", t).replace(",", "").replace(" ", "")
+    return t
+
+
+def score_quiz(task: str, text: str) -> dict[str, Any]:
+    qs = quiz_questions(task)
+    got: dict[int, str] = {}
+    for line in str(text or "").splitlines():
+        m = re.match(r"^\s*\**\s*(\d+)\s*[:.)]\s*(.+?)\s*$", line)
+        if m and 1 <= int(m.group(1)) <= len(qs) and int(m.group(1)) not in got:
+            got[int(m.group(1))] = m.group(2)
+    failed = []
+    for i, q in enumerate(qs, 1):
+        if _norm_answer(got.get(i, "")) not in [_norm_answer(a) for a in q["a"]]:
+            failed.append(f"Q{i} (answered {got.get(i, '-')!r}, expected {q['a'][0]!r})")
+    return {"passed": len(qs) - len(failed), "total": len(qs), "failed": failed}
+
+
+def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, log) -> dict[str, Any]:
+    """One AI alone: one read-only run. A team: a question to the table (answers, anonymous ranking, the best writes the final)."""
+    from . import council, dispatch, project
+
+    folder.mkdir(parents=True, exist_ok=True)
+    prompt = quiz_prompt(task)
+    started = time.time()
+    if contender.kind == "solo":
+        m = contender.members[0]
+        row = {"handle": _handle_for(m, set()), "app": m.app, "model": m.model, "effort": m.effort}
+        res = council.run_member(folder, row, prompt, folder, what="answering the quiz", minutes=int(minutes))
+        text, tokens = res["text"], res["tokens"]
+        if res["error"]:
+            log(f"  {res['error']}")
+    else:
+        home, _ = project.init_project(folder, name=f"bench-{task}")
+        taken: set[str] = set()
+        for m in contender.members:
+            h = _handle_for(m, taken)
+            dispatch.call("seat.add", {"handle": h, "model": m.model, "app": m.app, "roles": "plan,review", "worktree": False}, home=home, as_human=True, client="bench")
+            if m.effort:
+                dispatch.call("seat.set", {"handle": h, "effort": m.effort}, home=home, as_human=True, client="bench")
+        os.environ["RT_COUNCIL_INLINE"] = "1"
+        try:
+            cid = dispatch.call("council.ask", {"question": prompt}, home=home, as_human=True, client="bench").data["id"]
+        finally:
+            os.environ.pop("RT_COUNCIL_INLINE", None)
+        d = dispatch.call("council.show", {"id": cid}, home=home, as_human=True, client="bench").data["council"]
+        text, tokens = d["final"], d["tokens"]
+        for p in d["parts"]:
+            if p["stage"] == "answer" and p["text"]:
+                (folder / f"answer-{p['seat']}.txt").write_text(p["text"], encoding="utf-8")
+    (folder / "answers.txt").write_text(text or "", encoding="utf-8")
+    seconds = time.time() - started
+    log(f"  answered in {seconds / 60:.1f} min")
+    return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text}
 
 
 # ---------------------------------------------------------------- contenders
@@ -382,12 +458,18 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
         folder = out / f"{i}-{'solo' if c.kind == 'solo' else 'team'}-{'-'.join(m.model for m in c.members)}"
         log(f"[{i}/{len(contenders)}] {c.label}")
         try:
-            info = run_solo(task, c.members[0], folder, minutes, log) if c.kind == "solo" else \
-                run_team(task, c.members, folder, minutes, mode, review, log)
+            if meta(task)["kind"] == "quiz":
+                info = run_quiz(task, c, folder, minutes, log)
+            else:
+                info = run_solo(task, c.members[0], folder, minutes, log) if c.kind == "solo" else \
+                    run_team(task, c.members, folder, minutes, mode, review, log)
         except RTError as exc:
             info = {"error": exc.message + (f" ({exc.hint})" if exc.hint else ""), "seconds": 0, "tokens": 0}
             log(f"  could not run: {info['error']}")
-        sc = score(task, folder) if folder.exists() else {"passed": 0, "total": count_hidden(task), "failed": ["(nothing produced)"]}
+        if meta(task)["kind"] == "quiz":
+            sc = score_quiz(task, info.pop("quiz_text", "") or "")
+        else:
+            sc = score(task, folder) if folder.exists() else {"passed": 0, "total": count_hidden(task), "failed": ["(nothing produced)"]}
         log(f"  hidden tests: {sc['passed']} of {sc['total']}")
         c.result = dict(info, **sc, folder=str(folder))
         results.append({"contender": c.label, "kind": c.kind, "members": [m.__dict__ for m in c.members], **c.result})

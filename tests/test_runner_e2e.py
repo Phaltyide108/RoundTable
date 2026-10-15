@@ -290,3 +290,17 @@ def test_pondpro_task_is_well_formed():
     assert m["kind"] == "browser" and len(m["checks"]) == len(set(m["checks"])) >= 30
     text = bench.task_text("pondpro")
     assert "2.0 m/s" in text and "halves every 3 s" in text and "setFishCount" in text and "reset(seed)" in text
+
+
+def test_quiz_questions_and_scoring(tmp_path):
+    from roundtable_ai import bench
+
+    qs = bench.quiz_questions("quiz")
+    assert bench.count_hidden("quiz") == len(qs) == 30 and "30 questions" in bench.quiz_prompt("quiz")
+    perfect = "\n".join(f"{i}: {q['a'][0]}" for i, q in enumerate(qs, 1))
+    assert bench.score_quiz("quiz", perfect)["passed"] == 30
+    sloppy = perfect.replace("1: 734", "1: 735").replace("8: friday", "8: Friday.").replace("14: 130", "14: 130 degrees")
+    sc = bench.score_quiz("quiz", sloppy)
+    assert sc["passed"] == 29 and sc["failed"][0].startswith("Q1 ")
+    (tmp_path / "answers.txt").write_text(perfect)
+    assert bench.score("quiz", tmp_path)["passed"] == 30

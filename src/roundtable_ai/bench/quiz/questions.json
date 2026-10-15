@@ -1,0 +1,182 @@
+[
+ {
+  "q": "How many positive integers less than 1000 are divisible by none of 6, 10 and 15?",
+  "a": [
+   "734"
+  ]
+ },
+ {
+  "q": "How many trailing zeros does 125! (125 factorial) have?",
+  "a": [
+   "31"
+  ]
+ },
+ {
+  "q": "What is the sum of the decimal digits of 2^20?",
+  "a": [
+   "31"
+  ]
+ },
+ {
+  "q": "In how many ways can you climb 10 stairs taking 1 or 2 steps at a time?",
+  "a": [
+   "89"
+  ]
+ },
+ {
+  "q": "How many squares of all sizes are on an 8x8 chessboard?",
+  "a": [
+   "204"
+  ]
+ },
+ {
+  "q": "What is the 7th prime number greater than 100?",
+  "a": [
+   "131"
+  ]
+ },
+ {
+  "q": "How many times does the letter r appear in the phrase \"strawberry raspberry\"?",
+  "a": [
+   "6"
+  ]
+ },
+ {
+  "q": "If today is Wednesday, what day of the week is it 100 days from today?",
+  "a": [
+   "friday"
+  ]
+ },
+ {
+  "q": "Two fair dice are rolled. What is the probability that the sum is 7 or 11, as a fraction in lowest terms?",
+  "a": [
+   "2/9"
+  ]
+ },
+ {
+  "q": "How many distinct arrangements are there of the letters of the word BANANA?",
+  "a": [
+   "60"
+  ]
+ },
+ {
+  "q": "What is the smallest positive integer n such that n! is divisible by 1000?",
+  "a": [
+   "15"
+  ]
+ },
+ {
+  "q": "What is the last digit of 17^2023?",
+  "a": [
+   "3"
+  ]
+ },
+ {
+  "q": "How many integers from 1 to 100 inclusive are perfect squares or perfect cubes?",
+  "a": [
+   "12"
+  ]
+ },
+ {
+  "q": "A clock shows 3:40. What is the smaller angle between the hour and minute hands, in degrees?",
+  "a": [
+   "130"
+  ]
+ },
+ {
+  "q": "How many edges does a regular icosahedron have?",
+  "a": [
+   "30"
+  ]
+ },
+ {
+  "q": "If 5 machines make 5 widgets in 5 minutes, how many minutes do 100 machines take to make 100 widgets?",
+  "a": [
+   "5"
+  ]
+ },
+ {
+  "q": "How many diagonals does a convex decagon have?",
+  "a": [
+   "35"
+  ]
+ },
+ {
+  "q": "What is the sum of all integers from -50 to 70 inclusive?",
+  "a": [
+   "1210"
+  ]
+ },
+ {
+  "q": "What is the remainder when 2^100 is divided by 7?",
+  "a": [
+   "2"
+  ]
+ },
+ {
+  "q": "How many subsets of a 6-element set have an even number of elements (including the empty set)?",
+  "a": [
+   "32"
+  ]
+ },
+ {
+  "q": "How many positive divisors does 360 have?",
+  "a": [
+   "24"
+  ]
+ },
+ {
+  "q": "How many ordered pairs of integers (x, y) satisfy x^2 + y^2 = 25?",
+  "a": [
+   "12"
+  ]
+ },
+ {
+  "q": "A train leaves at 9:45 and arrives at 13:20 the same day. How many minutes is the trip?",
+  "a": [
+   "215"
+  ]
+ },
+ {
+  "q": "What is the 2024th digit after the decimal point in the decimal expansion of 1/7?",
+  "a": [
+   "4"
+  ]
+ },
+ {
+  "q": "How many three-digit positive integers have digits that add up to 5?",
+  "a": [
+   "15"
+  ]
+ },
+ {
+  "q": "What is the units digit of 3^2024 + 7^2024?",
+  "a": [
+   "2"
+  ]
+ },
+ {
+  "q": "How many ways can 8 identical balls be put into 3 distinct boxes (boxes may be empty)?",
+  "a": [
+   "45"
+  ]
+ },
+ {
+  "q": "A rectangle has perimeter 34 and diagonal 13. What is its area?",
+  "a": [
+   "60"
+  ]
+ },
+ {
+  "q": "How many integers between 1 and 1000 inclusive contain the digit 7 at least once?",
+  "a": [
+   "271"
+  ]
+ },
+ {
+  "q": "What is the greatest common divisor of 2^24 - 1 and 2^36 - 1?",
+  "a": [
+   "4095"
+  ]
+ }
+]
