@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -148,7 +149,7 @@ def meta(task: str) -> dict[str, Any]:
         data = {}
     return {"module": data.get("module") or f"{task}.py", "forbid": list(data.get("forbid") or []),
             "kind": data.get("kind") or "python", "checks": list(data.get("checks") or []),
-            "offline": bool(data.get("offline")), "working": bool(data.get("working"))}
+            "offline": bool(data.get("offline")), "working": bool(data.get("working")), "generated": str(data.get("generated") or "")}
 
 
 def forbidden_imports(task: str, folder: Path) -> list[str]:
@@ -221,7 +222,20 @@ def score(task: str, folder: Path, timeout: int = 300, *, check_forbidden: bool 
 
 # ---------------------------------------------------------------- quiz: questions with exact answers
 
+_SEEDS: dict[str, int] = {}     # task -> the seed its problems are made from in this run
+
+
+def set_seed(task: str, seed: int | None) -> int:
+    """Generated tasks: choose the seed for this run (random unless given); every contender gets the same problems."""
+    _SEEDS[task] = int(seed) if seed is not None else random.randint(1, 10 ** 6)
+    return _SEEDS[task]
+
+
 def quiz_questions(task: str) -> list[dict[str, Any]]:
+    if meta(task)["generated"] == "fresh":
+        from . import bench_fresh
+
+        return bench_fresh.generate(_SEEDS.get(task, 1))
     return json.loads((TASKS_DIR / task / "questions.json").read_text(encoding="utf-8"))
 
 
@@ -462,10 +476,16 @@ def run_team(task: str, members: list[Member], folder: Path, minutes: float, mod
 
 
 def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 40, mode: str = "quick", review: str = "mid",
-        log=print) -> dict[str, Any]:
+        log=print, seed: int | None = None) -> dict[str, Any]:
     task_text(task)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    if meta(task)["generated"]:
+        seed = set_seed(task, seed)
+        (out / "questions.json").write_text(json.dumps(quiz_questions(task), indent=2, ensure_ascii=False), encoding="utf-8")
+        log(f"problems made from seed {seed} (--seed {seed} repeats them); they are in questions.json")
+    else:
+        seed = None
     results = []
     for i, c in enumerate(contenders, 1):
         folder = out / f"{i}-{'solo' if c.kind == 'solo' else 'team'}-{'-'.join(m.model for m in c.members)}"
@@ -488,6 +508,8 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
         results.append({"contender": c.label, "kind": c.kind, "members": [m.__dict__ for m in c.members], **c.result})
     report = {"task": task, "minutes_limit": minutes, "mode": mode, "review": review, "results": results,
               "at": time.strftime("%Y-%m-%d %H:%M")}
+    if seed is not None:
+        report["seed"] = seed
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out / "report.md").write_text(markdown(report), encoding="utf-8")
     return report
@@ -495,7 +517,8 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
 
 def markdown(report: dict) -> str:
     lines = [f"# Roundtable benchmark: {report['task']}", "",
-             f"{report['at']} · time limit {report['minutes_limit']} min per contender · team planning: {report['mode']} · checking: {report['review']}", "",
+             f"{report['at']} · time limit {report['minutes_limit']} min per contender · team planning: {report['mode']} · checking: {report['review']}"
+             + (f" · problems from seed {report['seed']}" if report.get("seed") is not None else ""), "",
              "| Contender | Hidden tests passed | Minutes | Tokens |", "| --- | --- | --- | --- |"]
     for r in report["results"]:
         pct = 100 * r["passed"] / r["total"] if r["total"] else 0
@@ -549,7 +572,7 @@ def main(args) -> int:
     out = Path(args.out or (Path.cwd() / "roundtable-bench" / time.strftime("%Y%m%d-%H%M%S")))
     print(f"benchmark {args.task}: {len(cs)} contenders, up to {args.minutes} min each; work goes to {out}")
     print("this uses your real Claude Code / Codex limits.")
-    report = run(args.task, cs, out, minutes=args.minutes, mode=args.mode, review=args.review)
+    report = run(args.task, cs, out, minutes=args.minutes, mode=args.mode, review=args.review, seed=getattr(args, "seed", None))
     print()
     print(markdown(report))
     print(f"report: {out / 'report.md'}")

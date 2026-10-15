@@ -937,7 +937,7 @@ options:
 ```text
 usage: rt bench run [-h] [--task TASK] [--solo SOLO] [--team TEAM]
                     [--mode {quick,full}] [--review {low,mid,high}]
-                    [--minutes MINUTES] [--out OUT]
+                    [--minutes MINUTES] [--out OUT] [--seed SEED]
 
 options:
   -h, --help            show this help message and exit
@@ -951,6 +951,8 @@ options:
   --minutes MINUTES     time limit per contender
   --out OUT             folder for the work and the report (default
                         ./roundtable-bench/<time>)
+  --seed SEED           generated tasks (fresh): repeat the problems of an
+                        earlier run
 ```
 
 ### rt bench score

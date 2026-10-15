@@ -73,7 +73,7 @@ def _get(ctx, cid: str):
             Param("seats", type="list", desc="who answers (default: every AI Roundtable can run)"),
             Param("follow_up", desc="the id of an earlier question this one follows, e.g. Q2")])
 def ask(ctx, question, seats=None, follow_up=None) -> Result:
-    question = util.cap_chars(util.require_text(question, "question"), 6000, "question")
+    question = util.cap_chars(util.require_text(question, "question"), 16000, "question")
     pool = {r["handle"]: r for r in eligible(ctx)}
     if seats:
         chosen = [util.check_handle(s) for s in seats]

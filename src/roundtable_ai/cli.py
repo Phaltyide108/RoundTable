@@ -296,6 +296,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--review", choices=["low", "mid", "high"], default="mid", help="how carefully the team checks itself")
     s.add_argument("--minutes", type=float, default=40, help="time limit per contender")
     s.add_argument("--out", help="folder for the work and the report (default ./roundtable-bench/<time>)")
+    s.add_argument("--seed", type=int, help="generated tasks (fresh): repeat the problems of an earlier run")
     s = bench.add_parser("score", help="score a folder against a task's hidden tests")
     s.add_argument("folder")
     s.add_argument("--task", default="sheet")
