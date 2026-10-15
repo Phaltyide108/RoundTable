@@ -130,9 +130,9 @@ def test_icon_formats():
     assert data[:4] == b"icns" and int.from_bytes(data[4:8], "big") == len(data)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="pretending to be Linux on Windows would break pathlib for the whole process")
 def test_menu_entry_on_linux(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(window.os, "name", "posix")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
     lines = window.install()
     desktop = tmp_path / "share" / "applications" / "ai.roundtable.Roundtable.desktop"
