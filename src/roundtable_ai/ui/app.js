@@ -1,12 +1,11 @@
-/* Roundtable dashboard: the room.
+/* Roundtable: a quiet room for a team of AIs.
    No framework, no build step: plain DOM rebuilt from polled state.
    Everything shown comes from /api/state; every change goes through /api/action
    (a Roundtable operation, as the human) or /api/do (set up, start, connect).
 
-   One screen. The conversation is in the middle: everything the AIs do arrives as a message,
-   and whatever needs you is pinned above the message box. The team sits around the table
-   on the left, the plan is on the right. Everything else opens as a panel over the room
-   and closes with Esc. */
+   Chat first: the conversation is in the middle, with whatever needs you just above the
+   message box. A slim bar on top shows the project, what is happening and the AIs as faces;
+   everything else opens as a sheet over the room and closes with Esc. */
 "use strict";
 
 const TOKEN = document.querySelector('meta[name="rt-token"]').content;
@@ -75,7 +74,7 @@ function who(name) { return name === "human" ? "you" : name === "system" ? "Roun
 /* "claude-opus-5-5" -> "Claude Opus 5.5", "gpt-6.1-sol" -> "GPT-6.1 Sol" */
 function prettyModel(m) {
   if (!m) return "";
-  const parts = String(m).split(/[-_ ]+/).filter(Boolean);
+  const parts = String(m).split("/").pop().split(/[-_ ]+/).filter(Boolean);
   const out = [];
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
@@ -733,7 +732,11 @@ function feedView() {
   const events = allEvents();
   if (events.length >= 80 && !cache.olderDone) inner.append(h("div", { class: "earlier" },
     h("button", { class: "ghost small", type: "button", onclick: e => loadEarlier(e.currentTarget) }, "Show earlier messages")));
-  if (!S.plan && !(S.councils || []).length) inner.append(introCard());
+  if (!S.plan && !(S.councils || []).length) {
+    // nothing has happened yet: just the welcome, in the middle (setting-up messages are in History)
+    inner.append(introCard());
+    return h("div", { class: "feed fresh", role: "log", "aria-label": "What your AIs are doing" }, inner);
+  }
   let day = "", cur = null;
   events.forEach(e => {
     const m = say(e);
@@ -922,7 +925,7 @@ function buildAsks() {
   if (runnable.length > 1) {
     const names = listWords(runnable.map(x => x.handle));
     asks.push({ key: "start-many", tone: "info", icon: "play", title: `${names} aren't running yet`,
-      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal from its panel on the left.",
+      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal: click its face at the top.",
       actions: [{ label: "Run them in the background", primary: true, runSeats: runnable.map(x => x.handle) }] });
   }
   fresh.filter(x => !(runnable.length > 1 && runnable.includes(x))).forEach(x => {
@@ -1272,7 +1275,7 @@ function goalForm(st, after) {
       h("div", { class: "row" }, planners.map((x, i) => h("label", { class: "check" },
         h("input", { type: "checkbox", "data-k": "planner-" + x.handle, value: x.handle, checked: i < 3, class: "planner" }),
         h("span", null, h("strong", { text: x.handle }), " ", h("span", { class: "faint", text: prettyModel(x.model) })))))) : null,
-    !planners.length ? note("None of your AIs is set to write plans. Open one of them on the left to change that.", "warn") : null,
+    !planners.length ? note("None of your AIs is set to write plans. Click its face at the top to change that.", "warn") : null,
     h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: e => {
       const text = goal.value.trim();
       if (!text) { toast("Write the goal first", "One or two sentences is enough."); goal.focus(); return; }

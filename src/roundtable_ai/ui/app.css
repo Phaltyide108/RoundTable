@@ -277,6 +277,7 @@ a.tid:hover { color: var(--ink); background: var(--line); }
 .more-link:hover { text-decoration: underline; }
 
 /* empty state */
+.feed.fresh { display: grid; align-content: center; }
 .empty { text-align: center; display: grid; justify-items: center; gap: 14px; padding: 9vh 0 6vh; }
 .empty-faces { display: flex; }
 .empty-faces .av { margin: 0 -5px; box-shadow: 0 0 0 3px var(--bg); }
