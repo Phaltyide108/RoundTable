@@ -269,3 +269,24 @@ def test_pond_reference_passes_every_check_and_a_blank_page_fails(tmp_path):
     blank.mkdir()
     (blank / "index.html").write_text("<!doctype html><canvas></canvas>")
     assert bench.score("pond", blank)["passed"] <= 2
+
+
+@pytest.mark.skipif(os.environ.get("RT_BROWSER_TESTS") != "1", reason="needs Chrome and the network (three.js from a CDN); RT_BROWSER_TESTS=1 runs it")
+def test_pondpro_reference_passes_every_check(tmp_path):
+    import shutil
+
+    from roundtable_ai import bench
+
+    ref = tmp_path / "ref"
+    shutil.copytree(Path(__file__).with_name("bench_reference") / "pondpro", ref)
+    sc = bench.score("pondpro", ref)
+    assert sc["passed"] == sc["total"] == bench.count_hidden("pondpro") >= 30, sc["failed"]
+
+
+def test_pondpro_task_is_well_formed():
+    from roundtable_ai import bench
+
+    m = bench.meta("pondpro")
+    assert m["kind"] == "browser" and len(m["checks"]) == len(set(m["checks"])) >= 30
+    text = bench.task_text("pondpro")
+    assert "2.0 m/s" in text and "halves every 3 s" in text and "setFishCount" in text and "reset(seed)" in text
