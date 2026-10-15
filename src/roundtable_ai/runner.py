@@ -413,6 +413,12 @@ def run_once(ctx, row, work: list[tuple[str, str]], state: dict[str, Any], *, sh
     """Run the seat's app once for `work`. Returns facts about the run."""
     handle, app = row["handle"], row["app"]
     session = state.get("session") if state.get("resume_ok", True) else None
+    warm = float(ctx.setting("runner", "resume_minutes")) * 60
+    last = float((state.get("last_run") or {}).get("at") or 0)
+    if session and last and time.time() - last > warm:
+        # the app's prompt cache has gone cold: resuming would pay for the whole earlier conversation again,
+        # while a fresh session costs only its start (Roundtable's digest says what happened since)
+        session = None
     prompt = prompt_for(handle, work)
     cmd, cwd = headless_command(ctx, row, prompt, session)
     env = clean_env(os.environ)

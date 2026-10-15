@@ -79,6 +79,7 @@ SCHEMA: dict[str, dict[str, tuple[Any, Any, str]]] = {
     "runner": {
         "permissions": ("edits", ("edits", "all"), "Background runs: edits = its own files, Roundtable, git and the project's test commands; all = any command"),
         "max_minutes": (45, int, "A background run is stopped after this many minutes"),
+        "resume_minutes": (5, int, "Continue the previous conversation only if it ended this recently (its prompt cache is still warm); otherwise start fresh, which costs fewer tokens"),
     },
     "council": {
         "max_minutes": (15, int, "Ask the table: each answer, ranking or final answer is stopped after this many minutes"),

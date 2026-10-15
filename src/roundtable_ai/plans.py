@@ -22,7 +22,8 @@ OPEN_STAGES = ("drafting", "critique", "merging", "proposed", "voting", "awaitin
 # Found in a benchmark: tasks started together whose proofs each ran the whole test suite waited on each other forever.
 PROOF_RULE = ("Each task's proof must pass with only that task's work plus the tasks it depends_on merged: test just its own part "
               "(for example its own test file), and add depends_on for every task whose code it imports or needs. "
-              "Tasks that don't need each other's code run at the same time; a whole-suite check belongs in a last task that depends on the others.")
+              "Tasks that don't need each other's code run at the same time; a whole-suite check belongs in a last task that depends on the others. "
+              "Keep tasks few and substantial, about one per builder: every task costs its builder a run and a reviewer another.")
 
 AMEND_KINDS = ("edit_task", "add_task", "change_files", "change_owner", "cancel_task", "change_proof", "remove_dep")
 

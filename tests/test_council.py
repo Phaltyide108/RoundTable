@@ -351,3 +351,23 @@ def test_reviews_of_an_ai_out_of_usage_go_to_another(rt):
 def calls_log(rt):
     path = rt.home / "fake-calls.log"
     return path.read_text().splitlines() if path.exists() else []
+
+
+def test_a_cold_session_is_not_resumed(rt, fake_apps):
+    import time as _t
+
+    rt.add_seat("opus", model="claude-opus-5-5", app="claude-code", worktree=True)
+    ctx = rt.ctx()
+    try:
+        row = ctx.db.one("SELECT * FROM seats WHERE handle = 'opus'")
+        seen = []
+        orig = runner.headless_command
+        runner.headless_command = lambda c, r, p, session: (seen.append(session), orig(c, r, p, session))[1]
+        try:
+            runner.run_once(ctx, row, [("note:x", "hello")], {"session": "s-old", "last_run": {"at": _t.time() - 3600}})
+            runner.run_once(ctx, row, [("note:x", "hello")], {"session": "s-warm", "last_run": {"at": _t.time() - 30}})
+        finally:
+            runner.headless_command = orig
+    finally:
+        ctx.close()
+    assert seen == [None, "s-warm"]

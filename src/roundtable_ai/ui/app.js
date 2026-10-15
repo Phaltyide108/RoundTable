@@ -2010,6 +2010,7 @@ const SETTING_TEXT = {
   "usage.warn_percent": ["Warn me at this % of a plan limit", ""],
   "runner.permissions": ["What an AI running in the background may do", "Its own files, git and the project's test commands; or any command in its own copy of the project."],
   "runner.max_minutes": ["Stop a background run after (minutes)", "A run that goes on longer is stopped; the AI picks up again at its next run."],
+  "runner.resume_minutes": ["Continue the last conversation if it ended within (minutes)", "After that the app's cache is cold and resuming would pay for the whole earlier conversation again; a fresh start costs fewer tokens."],
   "council.rescue": ["Second opinion on failing tasks", "When a task fails its tests twice in a row, an AI from another company looks at it and tells the builder what it found."],
   "council.chair": ["Who writes the final answer", "The AI whose answer the others ranked best, or each AI in turn."],
   "council.max_minutes": ["Stop an answer after (minutes)", "Each answer, ranking or final answer."],
