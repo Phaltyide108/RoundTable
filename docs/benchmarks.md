@@ -27,6 +27,7 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-14 | sql | Team: Opus + Sol | 0/111 merged | 45 (limit) | 218,429 | Claude ran out of usage 2 minutes in; its planned tasks stayed reserved for it, so Sol finished its own tasks and waited. Led to handing over planned tasks too. |
 | 2026-10-15 | sql | Claude Haiku 5.5 (low thinking) alone | 111/111 | 4.7 | | Even the smallest Claude model gets this specification fully right alone |
 | 2026-10-15 | sql | Team: Haiku + Luna (low) | stopped | | | All five tasks started at once and each proof ran the whole suite, so none could pass before the others merged; stopped and fixed (each task now tests only its part and depends on what it imports) |
+| 2026-10-15 | sql | Team: Haiku + Luna (low), after the fix | 111/111 | 9.7 | 552,242 | Luna's missed rule (the trailing `;`) is not in the team's result |
 | 2026-10-15 | pond | GPT-6 Luna (low thinking) alone | 14/25 | 1.4 | 54,816 | Looks good at a glance, but its water is a square sheet sticking out of the round pond, and its simulation turns to NaN (fish, waves, food all break) |
 | 2026-10-15 | pond | Claude Haiku 5.5 (low thinking) alone | 25/25 | 5.0 | | |
 | 2026-10-15 | pond | Team: Haiku + Luna (low) | 25/25 | 6.4 | 614,364 | Six tasks split across both; the team's result has none of Luna's failures. A person looking at it: works, with a jagged edge where the water meets the wall |

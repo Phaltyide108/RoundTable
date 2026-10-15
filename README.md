@@ -106,9 +106,16 @@ It uses your real Claude Code and Codex limits. Each contender's work is kept ne
 | Task | Claude Opus 5.5 alone | GPT-6.1 Sol alone | Team (both) |
 | --- | --- | --- | --- |
 | sheet (52 tests) | 52/52 in 6.5 min | 52/52 in 20.7 min | stopped: Claude's 5-hour limit ran out mid-run; the unmerged work passed 52/52 |
-| sql (111 tests) | 111/111 in 27.9 min | 111/111 in 19 min | see [docs/benchmarks.md](docs/benchmarks.md) |
+| sql (111 tests) | 111/111 in 27.9 min | 111/111 in 19 min | stopped: Claude's limit again (fixed since) |
 
-The honest reading: on a clear specification of this size, today's top models each get everything right alone, so a team cannot be *more* accurate here; it costs more time and tokens, because the other model reviews the work. The first team run did find what a team is good for: when one AI ran out of its plan's usage, its work could pass to the other (which Roundtable now does by itself, keeping the work done so far), and the reviewer found real issues the hidden tests didn't cover. Where teams should help most is where a single model makes mistakes: smaller models, vaguer goals, bigger codebases. [docs/benchmarks.md](docs/benchmarks.md) has every run and its details.
+And with small models at low thinking, where single models do make mistakes:
+
+| Task | Claude Haiku 5.5 alone | GPT-6 Luna alone | Team (both) |
+| --- | --- | --- | --- |
+| sql (111 tests) | 111/111 in 4.7 min | 110/111 in 2.3 min | 111/111 in 9.7 min |
+| pond, a three.js koi pond (25 checks) | 25/25 in 5 min | 14/25 in 1.4 min: its physics breaks | 25/25 in 6.4 min |
+
+The honest reading so far: the team is as good as its best member and much better than its weakest; it has not yet beaten its best member, and it costs several times the tokens. On a clear specification of this size, today's top models each get everything right alone, so a team cannot be *more* accurate there; it costs more time and tokens, because the other model reviews the work. The first team run did find what a team is good for: when one AI ran out of its plan's usage, its work could pass to the other (which Roundtable now does by itself, keeping the work done so far), and the reviewer found real issues the hidden tests didn't cover. Where teams should help most is where a single model makes mistakes: smaller models, vaguer goals, bigger codebases. [docs/benchmarks.md](docs/benchmarks.md) has every run and its details.
 
 ## Quickstart: the terminal
 
