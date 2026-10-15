@@ -114,10 +114,14 @@ def test_report_scores_each_member_inside_the_team_question_by_question():
     right = "FINAL ANSWERS\n" + "\n".join(f"{i}: {q['a'][0]}" for i, q in enumerate(qs, 1))
     half = "FINAL ANSWERS\n" + "\n".join(f"{i}: {q['a'][0] if i % 2 else 1000}" for i, q in enumerate(qs, 1))
     team = dict(bench.score_quiz("fresh", right), contender="Team: a + b", seconds=60, tokens=10,
-                members={"a": bench.score_quiz("fresh", half), "b": bench.score_quiz("fresh", "")})
-    report = {"task": "fresh", "minutes_limit": 5, "mode": "quick", "review": "mid", "at": "now", "seed": 3, "results": [team],
+                member_scores={"a": bench.score_quiz("fresh", half), "b": bench.score_quiz("fresh", "")})
+    solo = dict(bench.score_quiz("fresh", half), contender="a alone", seconds=60, tokens=5, members=[{"app": "claude"}])
+    report = {"task": "fresh", "minutes_limit": 5, "mode": "quick", "review": "mid", "at": "now", "seed": 3, "results": [solo, team],
               "expected": {str(i): q["a"] for i, q in enumerate(qs, 1)}}
     md = bench.markdown(report)
     assert "the final answer got 20 of 20" in md and "a 10, b 0" in md and "Combining gained 10 over the best member" in md
-    assert "| # | Right answer | a inside the team | b inside the team | Team: a + b |" in md
-    assert f"| 2 | {qs[1]['a'][0]} | 1000 ✗ | – ✗ | {qs[1]['a'][0]} ✓ |" in md
+    assert "| # | Right answer | a alone | a inside the team | b inside the team | Team: a + b |" in md
+    assert f"| 2 | {qs[1]['a'][0]} | 1000 ✗ | 1000 ✗ | – ✗ | {qs[1]['a'][0]} ✓ |" in md
+    # answers written as "Problem 3: 55" or "**4.** 12" count too
+    got = bench.score_quiz("fresh", "Problem 1: 55\n**2.** 7\nQ3) 9")["answers"]
+    assert got["1"] == "55" and got["2"] == "7" and got["3"] == "9"

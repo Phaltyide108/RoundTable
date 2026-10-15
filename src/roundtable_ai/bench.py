@@ -265,7 +265,7 @@ def score_quiz(task: str, text: str) -> dict[str, Any]:
     if "FINAL ANSWERS" in text:
         text = text.rsplit("FINAL ANSWERS", 1)[1]
     for line in text.splitlines():
-        m = re.match(r"^\s*\**\s*(\d+)\s*[:.)]\s*(.+?)\s*$", line)
+        m = re.match(r"^\s*[*#]*\s*(?:problem|question|q)?\s*(\d+)\s*\**\s*[:.)]\s*\**\s*(.+?)\s*$", line, re.I)
         if m and 1 <= int(m.group(1)) <= len(qs) and int(m.group(1)) not in got:
             got[int(m.group(1))] = m.group(2)
     failed = []
@@ -319,7 +319,7 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
         (folder / "answers.txt").write_text(text or "", encoding="utf-8")
         seconds = time.time() - started
         log(f"  answered in {seconds / 60:.1f} min; inside the team: " + ", ".join(f"{k} alone {v['passed']}" for k, v in members.items()))
-        return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text, "members": members}
+        return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text, "member_scores": members}
     os.environ.pop("RT_COUNCIL_OFFLINE", None)
     (folder / "answers.txt").write_text(text or "", encoding="utf-8")
     seconds = time.time() - started
@@ -555,12 +555,12 @@ def markdown(report: dict) -> str:
         lines += ["## Question by question", ""]
         cols = []                                  # (label, answers)
         for r in quiz:
-            for seat, m in (r.get("members") or {}).items():
+            for seat, m in (r.get("member_scores") or {}).items():
                 cols.append((f"{seat} inside the team", m.get("answers") or {}))
             cols.append((r["contender"], r["answers"]))
-        teams = [r for r in quiz if r.get("members")]
+        teams = [r for r in quiz if r.get("member_scores")]
         for r in teams:
-            mem = r["members"]
+            mem = r["member_scores"]
             best = max((m["passed"] for m in mem.values()), default=0)
             lines.append(f"**{r['contender']}**: the final answer got {r['passed']} of {r['total']}; each member's own answer, before seeing the others': "
                          + ", ".join(f"{k} {v['passed']}" for k, v in mem.items())
