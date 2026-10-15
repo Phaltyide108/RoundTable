@@ -19,6 +19,11 @@ from .errors import CONFLICT, FORBIDDEN, INVALID, NOT_FOUND, STATE, RTError
 from .registry import ANY, HUMAN as WHO_HUMAN, Param, Result, op
 
 OPEN_STAGES = ("drafting", "critique", "merging", "proposed", "voting", "awaiting_human")
+# Found in a benchmark: tasks started together whose proofs each ran the whole test suite waited on each other forever.
+PROOF_RULE = ("Each task's proof must pass with only that task's work plus the tasks it depends_on merged: test just its own part "
+              "(for example its own test file), and add depends_on for every task whose code it imports or needs. "
+              "Tasks that don't need each other's code run at the same time; a whole-suite check belongs in a last task that depends on the others.")
+
 AMEND_KINDS = ("edit_task", "add_task", "change_files", "change_owner", "cancel_task", "change_proof", "remove_dep")
 
 
@@ -282,7 +287,7 @@ def view(ctx, draft=None) -> Result:
             if human or d["author"] == me:
                 lines += _show_draft(ctx, d, me, with_author=human)
         if not human and me in planners and not any(d["author"] == me for d in drafts):
-            lines.append("you have not drafted yet: rt_plan draft text=... tasks=[...]")
+            lines.append("you have not drafted yet: rt_plan draft text=... tasks=[...]. " + PROOF_RULE)
         return Result("\n".join(lines), {"plan": p["id"], "stage": p["stage"]})
     if draft:
         d = _draft_by_label(ctx, p["id"], draft)
@@ -317,9 +322,7 @@ def view(ctx, draft=None) -> Result:
                          "Cover the WHOLE goal: every part of it becomes a task, including parts meant for other seats. "
                          "A part the goal gives to a seat (e.g. 'sol: ...') is a task with that seat as owner: never drop it or take it yourself. "
                          "Use the file names the goal gives. Other work is spread across the builders: " + builders + ". "
-                         "Proof commands must run on this computer as they are (check what is installed, e.g. python3 vs python, pytest). "
-                         "Let the seats work at the same time: add depends_on only when a task really needs another's code "
-                         "(a seat writing tests from the spec, in its own files, does not need to wait for the code).")
+                         "Proof commands must run on this computer as they are (check what is installed, e.g. python3 vs python, pytest). " + PROOF_RULE)
         else:
             lines.append("you chair: merge the drafts and critiques -> rt_plan propose text=... tasks=[...]")
     if p["stage"] == "proposed" and not human and me != p["chair"]:

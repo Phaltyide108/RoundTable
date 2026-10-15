@@ -60,6 +60,7 @@ def test_quick_planner_gets_the_whole_goal(rt):
     rt.human("plan.goal", goal=goal, mode="quick", planners="opus")
     view = rt.seat("opus", "plan.view").text
     assert "Cover the WHOLE goal" in view and "opus, sol" in view and "sol: add word_count" in view
+    assert "depends_on for every task whose code it imports" in view          # no proofs that wait on each other
     ctx = rt.ctx()
     try:
         work = runner.pending(ctx, "opus")

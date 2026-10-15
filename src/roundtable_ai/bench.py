@@ -245,8 +245,10 @@ def _solo_prompt(task: str) -> str:
 
 
 def _team_prompt(task: str) -> str:
-    return (_brief(task) + "\nSplit the work into tasks with clear files; every task's test command should be: "
-            + _test_command(task))
+    whole = _test_command(task)
+    return (_brief(task) + "\nSplit the work into tasks with clear files. Each task's test command checks only that task's part and must pass "
+            "once the tasks it depends_on are merged (for example its own test file); give a task depends_on for every task whose code it needs. "
+            f"The whole check ({whole}) belongs in a last task that depends on all the others.")
 
 
 def solo_command(m: Member, folder: Path, prompt: str) -> list[str]:
