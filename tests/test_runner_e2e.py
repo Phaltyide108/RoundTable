@@ -243,3 +243,29 @@ def test_sql_task_hidden_tests_agree_with_sqlite_and_forbid_it():
     banned = bench.score("sql", ref)                              # ...but a contender may not hand the work to SQLite
     assert banned["passed"] == 0 and "sqlite3" in banned["failed"][0]
     assert "python" in bench._test_command()
+
+
+def test_pond_task_is_well_formed():
+    from roundtable_ai import bench
+
+    m = bench.meta("pond")
+    assert m["kind"] == "browser" and m["module"] == "index.html" and bench.count_hidden("pond") == len(m["checks"]) >= 20
+    assert "window.pond" in bench.task_text("pond") and "three@0.170.0" in bench.task_text("pond")
+    assert "node --check" in bench._test_command("pond")
+
+
+@pytest.mark.skipif(os.environ.get("RT_BROWSER_TESTS") != "1", reason="needs Chrome and the network (three.js from a CDN); RT_BROWSER_TESTS=1 runs it")
+def test_pond_reference_passes_every_check_and_a_blank_page_fails(tmp_path):
+    import shutil
+
+    from roundtable_ai import bench
+
+    ref = tmp_path / "ref"
+    shutil.copytree(Path(__file__).with_name("bench_reference") / "pond", ref)
+    sc = bench.score("pond", ref)
+    assert sc["passed"] == sc["total"], sc["failed"]
+    assert (tmp_path / "ref.png").stat().st_size > 40_000
+    blank = tmp_path / "blank"
+    blank.mkdir()
+    (blank / "index.html").write_text("<!doctype html><canvas></canvas>")
+    assert bench.score("pond", blank)["passed"] <= 2

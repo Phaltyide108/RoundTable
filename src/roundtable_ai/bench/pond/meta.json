@@ -1,0 +1,32 @@
+{
+ "module": "index.html",
+ "kind": "browser",
+ "forbid": [],
+ "checks": [
+  "no_script_errors",
+  "test_interface",
+  "canvas_fills_window",
+  "bounds",
+  "at_least_15_fish",
+  "fish_have_position_and_velocity",
+  "animates_by_itself",
+  "frame_rate",
+  "simulation_is_fast",
+  "fish_stay_in_the_pond",
+  "fish_keep_off_walls_bottom_surface",
+  "fish_speed_is_limited",
+  "separation",
+  "alignment",
+  "cohesion",
+  "ripple_rises",
+  "ripple_spreads",
+  "ripple_fades",
+  "lily_pads_ride_the_waves",
+  "food_attracts_fish",
+  "fish_swim_to_food",
+  "food_gets_eaten",
+  "click_ripples_and_feeds",
+  "renders_a_scene",
+  "follows_window_resize"
+ ]
+}

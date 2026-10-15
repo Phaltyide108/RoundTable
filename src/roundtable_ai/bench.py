@@ -31,7 +31,7 @@ from .errors import INVALID, NOT_FOUND, RTError
 TASKS_DIR = Path(__file__).parent / "bench"
 DEFAULT_MODELS = {"claude-code": "claude-opus-5-5", "codex-cli": "gpt-6.1-sol"}
 ALIASES = {"claude": "claude-code", "claude-code": "claude-code", "codex": "codex-cli", "codex-cli": "codex-cli"}
-SOLO_TOOLS = ["Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "TodoWrite", "Bash(python *)", "Bash(python3 *)",
+SOLO_TOOLS = ["Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "TodoWrite", "Bash(python *)", "Bash(python3 *)", "Bash(node *)",
               "Bash(ls *)", "Bash(cat *)", "Bash(git status *)", "Bash(git diff *)", "Bash(git add *)", "Bash(git commit *)"]
 
 
@@ -146,7 +146,8 @@ def meta(task: str) -> dict[str, Any]:
         data = json.loads((TASKS_DIR / task / "meta.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
-    return {"module": data.get("module") or f"{task}.py", "forbid": list(data.get("forbid") or [])}
+    return {"module": data.get("module") or f"{task}.py", "forbid": list(data.get("forbid") or []),
+            "kind": data.get("kind") or "python", "checks": list(data.get("checks") or [])}
 
 
 def forbidden_imports(task: str, folder: Path) -> list[str]:
@@ -171,6 +172,8 @@ def forbidden_imports(task: str, folder: Path) -> list[str]:
 
 
 def count_hidden(task: str) -> int:
+    if meta(task)["kind"] == "browser":
+        return len(meta(task)["checks"])
     text = (TASKS_DIR / task / "hidden" / "test_hidden.py").read_text(encoding="utf-8")
     return len(re.findall(r"^\s+def test_", text, re.M))
 
@@ -178,6 +181,11 @@ def count_hidden(task: str) -> int:
 def score(task: str, folder: Path, timeout: int = 300, *, check_forbidden: bool = True) -> dict[str, Any]:
     """Run the hidden tests against the code in `folder` (never inside it: in a copy)."""
     total = count_hidden(task)
+    if meta(task)["kind"] == "browser":
+        from . import bench_browser
+
+        folder = Path(folder)
+        return bench_browser.score_browser(TASKS_DIR / task, folder, meta(task)["checks"], shot=folder.parent / f"{folder.name}.png")
     if check_forbidden:
         bad = forbidden_imports(task, Path(folder))
         if bad:
@@ -212,7 +220,9 @@ def _python() -> str:
     return "python" if shutil.which("python") or not shutil.which("python3") else "python3"
 
 
-def _test_command() -> str:
+def _test_command(task: str = "") -> str:
+    if task and meta(task)["kind"] == "browser":
+        return "a command that runs on this computer and checks your files, e.g. node --check on each script"
     return f"{_python()} -m unittest discover -s tests"
 
 
@@ -226,7 +236,7 @@ def _brief(task: str) -> str:
     """What both the lone AI and the team are told; the full specification is TASK.md in their folder."""
     first = task_text(task).strip().splitlines()[0]
     return (f"{first}\nThe full specification is in TASK.md in this project: read it all and follow it exactly; "
-            f"hidden tests will check every rule in it. Write your own tests too ({_test_command()}).")
+            f"hidden tests will check every rule in it. Write your own tests too ({_test_command(task)}).")
 
 
 def _solo_prompt(task: str) -> str:
@@ -236,7 +246,7 @@ def _solo_prompt(task: str) -> str:
 
 def _team_prompt(task: str) -> str:
     return (_brief(task) + "\nSplit the work into tasks with clear files; every task's test command should be: "
-            + _test_command())
+            + _test_command(task))
 
 
 def solo_command(m: Member, folder: Path, prompt: str) -> list[str]:

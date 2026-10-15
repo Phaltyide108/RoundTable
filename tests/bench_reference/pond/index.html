@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Koi pond</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0c1b1f; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .hint { position: fixed; left: 16px; bottom: 14px; color: #cfe3dc; font: 13px system-ui, sans-serif; opacity: .7; pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div class="hint">Click the water to drop food · drag to look around</div>
+<script type="module">
+// Reference solution for the `pond` benchmark (checks that the hidden checks can pass).
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const R = 10, D = 3, N = 128, CELL = 2 * R / N;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0c1b1f);
+scene.fog = new THREE.Fog(0x0c1b1f, 30, 60);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 13, 17);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, -1.2, 0);
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.update();
+scene.add(new THREE.HemisphereLight(0xdff3ff, 0x2a3a2a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1d6, 1.6);
+sun.position.set(8, 14, 6);
+scene.add(sun);
+
+// ---- the basin: sand, stones, wall, rim
+const rnd = (a, b) => a + Math.random() * (b - a);
+const bottom = new THREE.Mesh(new THREE.CircleGeometry(R, 64), new THREE.MeshStandardMaterial({ color: 0xb59a6a, roughness: 1 }));
+bottom.rotation.x = -Math.PI / 2;
+bottom.position.y = -D;
+scene.add(bottom);
+const wall = new THREE.Mesh(new THREE.CylinderGeometry(R, R, D, 64, 1, true), new THREE.MeshStandardMaterial({ color: 0x6f6a5d, side: THREE.BackSide, roughness: 1 }));
+wall.position.y = -D / 2;
+scene.add(wall);
+const rim = new THREE.Mesh(new THREE.TorusGeometry(R + 0.2, 0.45, 12, 96), new THREE.MeshStandardMaterial({ color: 0x8c877b, roughness: 0.9 }));
+rim.rotation.x = Math.PI / 2;
+rim.position.y = 0.05;
+scene.add(rim);
+const stoneMat = new THREE.MeshStandardMaterial({ color: 0x77706a, roughness: 1, flatShading: true });
+for (let i = 0; i < 40; i++) {
+  const s = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.15, 0.5)), stoneMat);
+  const a = rnd(0, Math.PI * 2), r = rnd(0, R - 0.6);
+  s.position.set(Math.cos(a) * r, -D + 0.05, Math.sin(a) * r);
+  s.scale.y = 0.5;
+  s.rotation.set(rnd(0, 3), rnd(0, 3), 0);
+  scene.add(s);
+}
+
+// ---- the water: a damped wave equation on a height field
+const h = new Float32Array(N * N), v = new Float32Array(N * N), inside = new Uint8Array(N * N);
+const idx = (i, j) => j * N + i;
+for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+  const x = -R + (i + 0.5) * CELL, z = -R + (j + 0.5) * CELL;
+  inside[idx(i, j)] = x * x + z * z < (R - CELL) * (R - CELL) ? 1 : 0;
+}
+const C = 4.0, DAMP = 0.3;
+function stepWater(dt) {
+  const k = C * C / (CELL * CELL);
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const c = idx(i, j);
+    if (!inside[c]) continue;
+    const hc = h[c];
+    const l = inside[c - 1] ? h[c - 1] : hc, r = inside[c + 1] ? h[c + 1] : hc;
+    const u = inside[c - N] ? h[c - N] : hc, d = inside[c + N] ? h[c + N] : hc;
+    v[c] += k * (l + r + u + d - 4 * hc) * dt;
+  }
+  const f = Math.exp(-DAMP * dt);
+  for (let c = 0; c < N * N; c++) if (inside[c]) { v[c] *= f; h[c] += v[c] * dt; }
+}
+function addRipple(x, z, strength = 1) {
+  const ci = (x + R) / CELL - 0.5, cj = (z + R) / CELL - 0.5, rad = 0.6 / CELL;
+  for (let j = Math.max(1, Math.floor(cj - 3 * rad)); j <= Math.min(N - 2, Math.ceil(cj + 3 * rad)); j++)
+    for (let i = Math.max(1, Math.floor(ci - 3 * rad)); i <= Math.min(N - 2, Math.ceil(ci + 3 * rad)); i++) {
+      const c = idx(i, j);
+      if (!inside[c]) continue;
+      const d2 = ((i - ci) ** 2 + (j - cj) ** 2) / (rad * rad);
+      h[c] -= 0.15 * strength * Math.exp(-d2);
+    }
+}
+function waterHeight(x, z) {
+  const fi = (x + R) / CELL - 0.5, fj = (z + R) / CELL - 0.5;
+  const i = Math.max(0, Math.min(N - 2, Math.floor(fi))), j = Math.max(0, Math.min(N - 2, Math.floor(fj)));
+  const tx = Math.min(1, Math.max(0, fi - i)), tz = Math.min(1, Math.max(0, fj - j));
+  const a = h[idx(i, j)], b = h[idx(i + 1, j)], c = h[idx(i, j + 1)], d = h[idx(i + 1, j + 1)];
+  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+}
+const waterGeo = new THREE.PlaneGeometry(2 * R, 2 * R, N - 1, N - 1);
+waterGeo.rotateX(-Math.PI / 2);
+const colors = new Float32Array(N * N * 4);
+for (let c = 0; c < N * N; c++) { colors.set([0.18, 0.45, 0.5, 1], c * 4); }
+const wpos = waterGeo.attributes.position;
+for (let k = 0; k < wpos.count; k++) {
+  const x = wpos.getX(k), z = wpos.getZ(k);
+  colors[k * 4 + 3] = x * x + z * z < R * R ? 1 : 0;
+}
+waterGeo.setAttribute("color", new THREE.BufferAttribute(colors, 4));
+const water = new THREE.Mesh(waterGeo, new THREE.MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.62, roughness: 0.06,
+  metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.08, depthWrite: false }));
+water.renderOrder = 2;
+scene.add(water);
+function updateWaterMesh() {
+  for (let k = 0; k < wpos.count; k++) wpos.setY(k, waterHeight(wpos.getX(k), wpos.getZ(k)));
+  wpos.needsUpdate = true;
+  waterGeo.computeVertexNormals();
+}
+
+// ---- koi
+function koiMesh() {
+  const g = new THREE.Group();
+  const body = new THREE.SphereGeometry(0.5, 24, 12);
+  body.scale(1, 0.32, 0.36);
+  const col = [], base = new THREE.Color(0xf1efe8), spots = [new THREE.Color(0xe2541a), new THREE.Color(0x1d1d1f), new THREE.Color(0xf29a2e)];
+  const pick = spots[Math.floor(Math.random() * spots.length)], seed = Math.random() * 10;
+  const p = body.attributes.position;
+  for (let k = 0; k < p.count; k++) {
+    const n = Math.sin(p.getX(k) * 7 + seed) * Math.cos(p.getZ(k) * 9 + seed * 2) + p.getY(k) * 3;
+    const c = n > 0.15 ? pick : base;
+    col.push(c.r, c.g, c.b);
+  }
+  body.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45 });
+  g.add(new THREE.Mesh(body, mat));
+  const finMat = new THREE.MeshStandardMaterial({ color: pick, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+  const tailShape = new THREE.Shape();
+  tailShape.moveTo(0, 0); tailShape.lineTo(-0.35, 0.18); tailShape.lineTo(-0.3, 0); tailShape.lineTo(-0.35, -0.18); tailShape.lineTo(0, 0);
+  const tail = new THREE.Mesh(new THREE.ShapeGeometry(tailShape), finMat);
+  tail.rotation.x = Math.PI / 2;
+  const pivot = new THREE.Group();
+  pivot.position.x = -0.45;
+  pivot.add(tail);
+  g.add(pivot);
+  for (const s of [-1, 1]) {
+    const fin = new THREE.Mesh(new THREE.CircleGeometry(0.1, 8), finMat);
+    fin.position.set(0.1, -0.05, s * 0.17);
+    fin.rotation.set(Math.PI / 2, 0, s * 0.6);
+    g.add(fin);
+  }
+  g.userData.tail = pivot;
+  return g;
+}
+const fish = [];
+for (let i = 0; i < 18; i++) {
+  const a = rnd(0, Math.PI * 2), r = rnd(1, 7);
+  const f = { position: new THREE.Vector3(Math.cos(a) * r, rnd(-2.4, -0.7), Math.sin(a) * r),
+              velocity: new THREE.Vector3(rnd(-1, 1), rnd(-0.1, 0.1), rnd(-1, 1)).setLength(rnd(0.8, 1.4)),
+              mesh: koiMesh(), phase: rnd(0, 6) };
+  f.mesh.scale.setScalar(rnd(0.8, 1.2));
+  scene.add(f.mesh);
+  fish.push(f);
+}
+const food = [];
+const pelletGeo = new THREE.SphereGeometry(0.08, 10, 8), pelletMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.8 });
+function dropFood(x, z) {
+  const m = new THREE.Mesh(pelletGeo, pelletMat);
+  const p = { position: new THREE.Vector3(x, 0, z), age: 0, mesh: m };
+  m.position.copy(p.position);
+  scene.add(m);
+  food.push(p);
+}
+const tmp = new THREE.Vector3(), steer = new THREE.Vector3(), sep = new THREE.Vector3(), ali = new THREE.Vector3(), coh = new THREE.Vector3();
+function stepFish(dt) {
+  for (const f of fish) {
+    sep.set(0, 0, 0); ali.set(0, 0, 0); coh.set(0, 0, 0);
+    let n = 0;
+    for (const o of fish) {
+      if (o === f) continue;
+      const d = f.position.distanceTo(o.position);
+      if (d < 2.5) { ali.add(o.velocity); coh.add(o.position); n++; }
+      if (d < 0.9 && d > 1e-6) sep.add(tmp.subVectors(f.position, o.position).multiplyScalar((0.9 - d) / d));
+    }
+    steer.set(0, 0, 0);
+    if (n) {
+      ali.divideScalar(n).sub(f.velocity).multiplyScalar(0.9);
+      coh.divideScalar(n).sub(f.position).multiplyScalar(0.35);
+      steer.add(ali).add(coh);
+    }
+    steer.add(sep.multiplyScalar(3.0));
+    // stay in the pond: steer away from the wall, the bottom and the surface before reaching them
+    const r = Math.hypot(f.position.x, f.position.z);
+    if (r > R - 2.2) steer.add(tmp.set(-f.position.x / r, 0, -f.position.z / r).multiplyScalar((r - (R - 2.2)) * 2.5));
+    if (f.position.y > -0.8) steer.y -= (f.position.y + 0.8) * 4;
+    if (f.position.y < -D + 0.8) steer.y += (-D + 0.8 - f.position.y) * 4;
+    // food
+    let chase = null, best = 6;
+    for (const p of food) { const d = f.position.distanceTo(p.position); if (d < best) { best = d; chase = p; } }
+    let vmax = 1.7;
+    if (chase) { steer.add(tmp.subVectors(chase.position, f.position).setLength(4)); vmax = 2.9; }
+    if (steer.length() > 4) steer.setLength(4);
+    f.velocity.addScaledVector(steer, dt);
+    const s = f.velocity.length();
+    if (s > vmax) f.velocity.setLength(vmax);
+    if (s < 0.5) f.velocity.setLength(0.5);
+    f.velocity.y *= 0.98;
+    f.position.addScaledVector(f.velocity, dt);
+    // never closer than 0.3 m to a boundary
+    const r2 = Math.hypot(f.position.x, f.position.z);
+    if (r2 > R - 0.4) { f.position.x *= (R - 0.4) / r2; f.position.z *= (R - 0.4) / r2; }
+    f.position.y = Math.min(-0.4, Math.max(-D + 0.4, f.position.y));
+    if (f.position.y > -0.6 && Math.random() < 0.02) addRipple(f.position.x, f.position.z, 0.02);
+    f.phase += dt * (3 + f.velocity.length() * 5);
+    // eat
+    if (chase) {
+      tmp.copy(f.velocity).setLength(0.35).add(f.position);
+      if (tmp.distanceTo(chase.position) < 0.4) { scene.remove(chase.mesh); food.splice(food.indexOf(chase), 1); }
+    }
+  }
+}
+function stepFood(dt) {
+  for (const p of food) {
+    p.age += dt;
+    p.position.y = p.age < 1.5 ? waterHeight(p.position.x, p.position.z) : Math.max(-D + 0.08, p.position.y - 0.15 * dt);
+  }
+}
+// ---- lily pads
+const lilyPads = [];
+const padMat = new THREE.MeshStandardMaterial({ color: 0x4f8a3c, roughness: 0.7, side: THREE.DoubleSide });
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(rnd(0.5, 0.8), 24, 0.3, Math.PI * 2 - 0.4), padMat);
+  m.rotation.x = -Math.PI / 2;
+  m.rotation.z = rnd(0, 6);
+  const a = rnd(0, Math.PI * 2), r = rnd(3, 8);
+  const pad = { position: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), mesh: m };
+  scene.add(m);
+  lilyPads.push(pad);
+}
+function stepPads() { for (const p of lilyPads) p.position.y = waterHeight(p.position.x, p.position.z) + 0.01; }
+
+function step(dt) { stepWater(dt); stepFish(dt); stepFood(dt); stepPads(); }
+function sync() {
+  for (const f of fish) {
+    f.mesh.position.copy(f.position);
+    f.mesh.lookAt(tmp.copy(f.position).add(f.velocity));
+    f.mesh.rotateY(-Math.PI / 2);
+    f.mesh.userData.tail.rotation.y = Math.sin(f.phase) * 0.5;
+  }
+  for (const p of food) p.mesh.position.copy(p.position);
+  for (const p of lilyPads) p.mesh.position.copy(p.position);
+  updateWaterMesh();
+}
+
+// ---- clicking the water
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+let down = null;
+renderer.domElement.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) { down = null; return; }
+  down = null;
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.ray.intersectPlane(plane, new THREE.Vector3());
+  if (hit && hit.x * hit.x + hit.z * hit.z < (R - 0.5) ** 2) { addRipple(hit.x, hit.z, 1); dropFood(hit.x, hit.z); }
+});
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const pond = { bounds: { radius: R, depth: D }, fish, food, lilyPads, paused: false, step, addRipple, dropFood, waterHeight };
+window.pond = pond;
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 30);
+  if (!pond.paused) step(dt);
+  sync();
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
