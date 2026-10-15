@@ -276,6 +276,8 @@ def test_limit_messages_are_understood():
     assert hm(runner.limit_until("You've hit your usage limit. Try again in 2 hours 5 minutes.", now)) == "14 21:45"
     assert hm(runner.limit_until("rate limit exceeded", now)) == "14 20:10"
     assert runner.limit_until("the tests hit a limit of 3 retries", now) is None
+    assert runner.limit_until("Fish obey the 3 rad/s turn rate limit; usage of the grid keeps it fast.", now) is None
+    assert runner.limit_until("Claude usage limit reached. Your limit will reset at 3am", now) is not None
     assert runner.limit_until("", now) is None
 
 

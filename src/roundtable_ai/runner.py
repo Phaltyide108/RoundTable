@@ -138,7 +138,11 @@ def status(home: Path, seat: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- out of usage
 
-LIMIT_WORDS = re.compile(r"(?:usage|session|rate|weekly|daily|5-hour|hourly)[ -]limit|hit your limit|limit (?:reached|exceeded)|out of (?:credits|usage)|quota (?:exceeded|reached)", re.I)
+# Only the apps' own "you are out of usage" messages: a model talking about a "turn rate limit" in its code is not one.
+LIMIT_WORDS = re.compile(r"(?:you(?:'ve| have)|you've) (?:hit|reached|exceeded) (?:your|the) [\w -]{0,24}limit"
+                         r"|(?:usage|session|weekly|daily|5-hour|hourly) limit (?:reached|exceeded|hit)"
+                         r"|rate limit (?:reached|exceeded)|out of (?:credits|usage)|quota (?:exceeded|reached)"
+                         r"|limit (?:reached|exceeded)[.;,]? (?:\w+ ){0,6}(?:resets?|try again)", re.I)
 
 
 def limit_until(text: str | None, now: float | None = None) -> float | None:

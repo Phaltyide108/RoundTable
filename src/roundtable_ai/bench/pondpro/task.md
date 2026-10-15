@@ -29,7 +29,7 @@ Build a physically accurate 3D koi pond in the browser with three.js, in `index.
 ## The heron
 
 - `setHeron(x, z)` puts a heron standing in the water at (x, z); `setHeron(null)` takes it away. `heron` is `null` or `{ position: {x, y, z} }`.
-- Fish within **4 m** of the heron (horizontally) flee from it at up to **3.0 m/s**, while it is there.
+- Fish within **4 m** of the heron (horizontally) flee from it while it is there, faster than they ever swim otherwise: above 2.0 m/s, at most **3.0 m/s**.
 
 ## Food
 
