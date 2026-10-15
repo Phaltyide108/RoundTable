@@ -371,3 +371,13 @@ def test_a_cold_session_is_not_resumed(rt, fake_apps):
     finally:
         ctx.close()
     assert seen == [None, "s-warm"]
+
+
+def test_numbered_answers_point_out_where_they_disagree():
+    a = ("A", "1: 734\n2: 31\n3: friday\n4: 91")
+    b = ("B", "1: 734\n2: 31.\n3: Friday\n4: 99")
+    assert council.disagreements([a, b]) == ["4"]
+    assert council.disagreements([("A", "free text"), ("B", "other text")]) == []
+    c = {"question": "q", "workdir": "/tmp", "context": ""}
+    assert "disagree on item 4" in council.rank_prompt(c, [a, b])
+    assert "disagree on item 4" in council.final_prompt(c, [a, b], ["r"], "A")

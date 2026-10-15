@@ -405,14 +405,40 @@ def _answers_block(answers: list[tuple[str, str]]) -> str:
     return "\n\n".join(f"Answer {label}:\n<<<\n{text.strip()}\n>>>" for label, text in answers)
 
 
+def disagreements(answers: list[tuple[str, str]]) -> list[str]:
+    """For answers given as numbered items ("3: 42"), the item numbers where they don't all say the same thing."""
+    parsed: list[dict[str, str]] = []
+    for _label, text in answers:
+        items = {}
+        for line in str(text or "").splitlines():
+            m = re.match(r"^\s*\**\s*(\d{1,3})\s*[:.)]\s*(.+?)\s*$", line)
+            if m and m.group(1) not in items:
+                items[m.group(1)] = re.sub(r"[\s*`_.,]+", "", m.group(2).lower())
+        if len(items) < 3:
+            return []
+        parsed.append(items)
+    keys = sorted({k for p in parsed for k in p}, key=int)
+    return [k for k in keys if len({p.get(k, "") for p in parsed}) > 1]
+
+
+def _dispute_note(answers: list[tuple[str, str]], who: str) -> str:
+    items = disagreements(answers)
+    if not items:
+        return ""
+    return (f"The answers disagree on item{'s' if len(items) > 1 else ''} {', '.join(items)}. {who} work out each of these again from scratch, "
+            "step by step, and decide on the merits, not by which answer seems better overall.")
+
+
 def rank_prompt(c, answers: list[tuple[str, str]]) -> str:
     labels = [a for a, _t in answers]
+    note = _dispute_note(answers, "Before ranking,")
     return "\n".join([
         f"Several AI models answered the question below on their own. Their {len(answers)} answers are shown as Answer {', '.join(labels)}, "
         "in random order and without names. One of them may be yours: judge it by the same standard as the others.",
         _project_line(Path(c["workdir"])), "",
         "The question:", f"«{c['question']}»", "",
         _answers_block(answers), "",
+        *([note + " Say which answer, if any, has each of them right.", ""] if note else []),
         "For each answer, say in two to four short lines what it gets right, what is wrong or missing, and whether its claims hold up "
         "(check the project files when that settles it). Be strict about correctness. Then end with exactly this, every answer once, best first:",
         "FINAL RANKING:", *[f"{i}. Answer {label}" for i, label in enumerate(labels, 1)]])
@@ -427,9 +453,13 @@ def final_prompt(c, answers: list[tuple[str, str]], reviews: list[str], best: st
         lines += ["", c["context"]]
     lines += ["", "The question (the person's words, in full):", f"«{c['question']}»", "", _answers_block(answers), ""]
     lines += [f"Review {i}:\n<<<\n{r.strip()}\n>>>" for i, r in enumerate(reviews, 1)]
+    note = _dispute_note(answers, "Before writing,")
+    if note:
+        lines += ["", note + " The best-ranked answer can still be wrong on some of them; where a review shows how to get an item right, check that working."]
     lines += ["", "Write the single best answer for the person: keep what the answers got right, fix what the reviews showed is wrong, "
               "and add what all of them missed (check the code when in doubt). If the models still disagree on something that matters, "
-              "say so in one line and say which view is right and why. Do not mention Answer A/B or the reviews. Reply with the final answer only."]
+              "say so in one line and say which view is right and why. Keep the format the question asked for. Do not mention Answer A/B or the reviews. "
+              "Reply with the final answer only."]
     return "\n".join(lines)
 
 
