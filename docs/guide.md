@@ -51,17 +51,17 @@ The model box in **Add an AI** and in each AI's panel lists the app's own models
 
 ## The room
 
-The app is one screen, laid out like a meeting.
+The app is one calm screen: a conversation, with everything else one click away.
 
 | Where | What it is for | Terminal |
 | --- | --- | --- |
-| The middle | The conversation: every plan, change, test, check and note arrives as a message from the AI that did it, in its maker's colour, with long messages folded behind **Read more**. At the bottom, what each AI is doing right now (thinking, running a command, editing a file). Search it with the magnifier. | `rt log` |
-| Above the message box | Whatever needs you, with the buttons that settle it: approve the plan, check changes that came to you, add or set aside work the AIs found, problems (alerts 3-5), tied votes, AIs that aren't started. Empty means nothing to do. | `rt status`, `rt plan lock`, `rt review ...`, `rt task accept`, `rt alert ...`, `rt vote ...` |
-| The message box | Before a plan: the goal, with Light / Standard / Thorough checking, or **Ask the table**. During one: **Tell them** (a note every AI reads), **Ask the table**, **Report a problem** (a level 3 alert), **Add a task**. Enter sends; Shift+Enter starts a new line. | `rt goal`, `rt ask`, `rt memory add`, `rt alert raise`, `rt task file` |
-| The left | The team around the table: a green light means the AI's app is open, blue that it is working. Click an AI for its start button, usage, pause, its folder, or to remove it. **Add an AI**, **Pause everyone**, Settings and Help sit here too. | `rt seat ...`, `rt launch`, `rt usage`, `rt freeze` |
-| The right | The goal and the plan: its steps while the AIs plan, then every task (now, next, done) while they build. Questions, Usage, Notes, History and Problems are linked at the bottom. | `rt plan view`, `rt task list`, `rt ask --list` |
+| The middle | The conversation: every plan, change, test, check, question and note arrives as a message from the AI that did it, in its maker's colour, with long messages folded behind **Read more**. At the bottom, a quiet line for each AI that is working right now (thinking, running a command, editing a file). | `rt log` |
+| Above the message box | Whatever needs you, with the buttons that settle it: approve the plan, check changes that came to you, add or set aside work the AIs found, problems (alerts 3-5), tied votes, AIs that aren't started or are out of usage. Empty means nothing to do. | `rt status`, `rt plan lock`, `rt review ...`, `rt task accept`, `rt alert ...`, `rt vote ...` |
+| The message box | Before a plan: **Plan together**, **Just do it** or **Ask the table**; the small options link sets how carefully they check (Light / Standard / Thorough) and whether they start without asking you. During a plan: **Tell them** (a note every AI reads), **Ask the table**, **Report a problem** (a level 3 alert), **Add a task**. Enter sends; Shift+Enter starts a new line. | `rt goal`, `rt ask`, `rt memory add`, `rt alert raise`, `rt task file` |
+| The bar on top | The project (click to switch), what is happening now, and your AIs as faces: a green dot means its app is open, blue that it is working, amber that it needs you. Click a face for its start button, model, usage and everything it did. **Plan**, search and the menu sit on the right. | `rt seat ...`, `rt launch`, `rt usage` |
+| The menu | The team, the plan and its tasks, questions to the table, problems, work your AIs found, usage, notes, history, settings, help, another project, **Pause everyone**. | `rt plan view`, `rt task list`, `rt ask --list`, `rt freeze` |
 
-Panels open over the room and close with Esc or the ×: the plan (read each AI's own plan, approve, cancel), a task (test runs, progress notes, checks by other AIs, changed files and the diff; edit, link, reassign, cancel), an AI, Add an AI, Problems and votes, Work your AIs found, Usage, Notes, History, Settings (with **Run the checks**), Help, and Open another project. On a phone the team becomes a row of faces at the top, and the people button opens the team and everything else.
+Sheets open over the conversation and close with Esc or the ×: the plan (read each AI's own plan, approve, cancel), a task (test runs, progress notes, checks by other AIs, changed files and the diff; edit, link, reassign, cancel), an AI, a question to the table, Add an AI, Problems and votes, Work your AIs found, Usage, Notes, History, Settings (with **Run the checks**), Help, and Open another project. It works the same on a phone.
 
 **Pause everyone** (`rt freeze`) makes every AI's next call return STOP until you let them work again (`rt unfreeze`).
 
