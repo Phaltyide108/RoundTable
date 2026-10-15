@@ -1,0 +1,182 @@
+[
+ {
+  "q": "How many integers from 1 to 1,000,000 are divisible by 7 but by neither 11 nor 13?",
+  "a": [
+   "119880"
+  ]
+ },
+ {
+  "q": "How many points (x, y) with integer coordinates satisfy x^2 + y^2 < 1000?",
+  "a": [
+   "3133"
+  ]
+ },
+ {
+  "q": "What is the sum of all prime numbers below 2000?",
+  "a": [
+   "277050"
+  ]
+ },
+ {
+  "q": "In how many ways can a 2 x 12 board be tiled with 1 x 2 dominoes?",
+  "a": [
+   "233"
+  ]
+ },
+ {
+  "q": "How many permutations of 1, 2, ..., 8 leave no number in its original position?",
+  "a": [
+   "14833"
+  ]
+ },
+ {
+  "q": "What are the last three digits of 7^999? (Give the three-digit number.)",
+  "a": [
+   "143"
+  ]
+ },
+ {
+  "q": "How many binary strings of length 10 have no two consecutive 1s?",
+  "a": [
+   "144"
+  ]
+ },
+ {
+  "q": "What is the smallest positive integer whose square ends in the digits 444?",
+  "a": [
+   "38"
+  ]
+ },
+ {
+  "q": "What is the sum of all positive divisors of 1000?",
+  "a": [
+   "2340"
+  ]
+ },
+ {
+  "q": "How many solutions in positive integers does a + b + c + d = 20 have with every variable at most 8?",
+  "a": [
+   "315"
+  ]
+ },
+ {
+  "q": "How many integers n from 1 to 1000 have gcd(n, 1000) = 1?",
+  "a": [
+   "400"
+  ]
+ },
+ {
+  "q": "With how many zeros does 1000! end when written in base 12?",
+  "a": [
+   "497"
+  ]
+ },
+ {
+  "q": "How many 4-letter strings of capital letters A-Z contain at least one vowel (A, E, I, O, U)?",
+  "a": [
+   "262495"
+  ]
+ },
+ {
+  "q": "Eight points on a circle are joined by all possible chords, no three meeting at one point inside. Into how many regions is the disc divided?",
+  "a": [
+   "99"
+  ]
+ },
+ {
+  "q": "Write the positive integers one after another: 123456789101112... What is the 1000th digit?",
+  "a": [
+   "3"
+  ]
+ },
+ {
+  "q": "How many integers from 1 to 2024 have exactly five 1s in their binary representation?",
+  "a": [
+   "462"
+  ]
+ },
+ {
+  "q": "What is the sum of the digits of 2^100?",
+  "a": [
+   "115"
+  ]
+ },
+ {
+  "q": "How many months from January 2001 to December 2100 inclusive began on a Sunday?",
+  "a": [
+   "172"
+  ]
+ },
+ {
+  "q": "How many ordered triples (a, b, c) of positive integers satisfy a * b * c = 1000?",
+  "a": [
+   "100"
+  ]
+ },
+ {
+  "q": "What is the largest prime factor of 600851475143?",
+  "a": [
+   "6857"
+  ]
+ },
+ {
+  "q": "In how many ways can 100 cents be made from coins worth 1, 5, 10, 25 and 50 cents?",
+  "a": [
+   "292"
+  ]
+ },
+ {
+  "q": "How many distinct arrangements are there of the letters of MISSISSIPPI?",
+  "a": [
+   "34650"
+  ]
+ },
+ {
+  "q": "What is the remainder when 1^1 + 2^2 + 3^3 + ... + 100^100 is divided by 7?",
+  "a": [
+   "0"
+  ]
+ },
+ {
+  "q": "How many twin prime pairs (p, p + 2) have p + 2 < 1000?",
+  "a": [
+   "35"
+  ]
+ },
+ {
+  "q": "What is the sum of the digits of 100! (100 factorial)?",
+  "a": [
+   "648"
+  ]
+ },
+ {
+  "q": "How many 5-card hands from a standard 52-card deck are a full house?",
+  "a": [
+   "3744"
+  ]
+ },
+ {
+  "q": "How many distinct prime factors does 2^30 - 1 have?",
+  "a": [
+   "6"
+  ]
+ },
+ {
+  "q": "What is the minimum number of moves to solve the Tower of Hanoi with 11 discs?",
+  "a": [
+   "2047"
+  ]
+ },
+ {
+  "q": "How many positive integers below 10,000 are perfect squares and have a digit sum of 9?",
+  "a": [
+   "14"
+  ]
+ },
+ {
+  "q": "How many subsets of {1, 2, ..., 12} contain no two consecutive numbers (count the empty set)?",
+  "a": [
+   "377"
+  ]
+ }
+]
