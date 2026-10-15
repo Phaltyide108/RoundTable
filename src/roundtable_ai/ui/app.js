@@ -1639,7 +1639,8 @@ function liveList(x, data) {
     h("p", { class: "faint", text: `From ${data.source}${data.stale ? ", a while ago" : ""}. Newest first.` }),
     h("ol", { class: "steps-live plain" }, items.map((it, i) => h("li", { class: "step-" + it.kind },
       h("span", { class: "k" }, icon((STEP[it.kind] || [0, "dot"])[1], "sm"), STEP_LABEL[it.kind] || it.kind),
-      h("div", { class: "v" }, it.kind === "run" || it.kind === "edit" || it.kind === "read" ? h("code", { text: it.text }) : longText(it.text, `act-${x.handle}-${it.t}-${i}`, "pre", 280),
+      h("div", { class: "v" }, it.kind === "run" || it.kind === "edit" || it.kind === "read" ? h("code", { text: it.text })
+        : it.kind === "say" || it.kind === "done" ? longMd(it.text, `act-${x.handle}-${it.t}-${i}`, 400) : longText(it.text, `act-${x.handle}-${it.t}-${i}`, "pre", 280),
         h("span", { class: "faint", text: agoText(it.t) }))))));
 }
 
