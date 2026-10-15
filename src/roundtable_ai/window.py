@@ -12,7 +12,7 @@ window of its own, the first of these that works:
 
 Closing the window ends the dashboard. Background runs keep going: they are their own
 processes. `rt app --install` adds Roundtable to the app menu: a .desktop entry on Linux,
-~/Applications/Roundtable.app on macOS, a Start menu shortcut on Windows.
+~/Applications/Sabha.app on macOS, a Start menu shortcut on Windows.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 APP_ID = "ai.roundtable.Roundtable"
-TITLE = "Roundtable"
+TITLE = "Sabha"
 IDLE_SECONDS = 12            # after its window closes, the server waits this long for other windows still polling
 
 
@@ -208,11 +208,11 @@ def run(home: str | None = None, *, port: int | None = None, prefer: str | None 
     if "error" in box:
         raise box["error"]
     if "httpd" not in ref:
-        print("Roundtable could not start its dashboard", file=sys.stderr)
+        print("Sabha could not start its dashboard", file=sys.stderr)
         return 1
     url = f"http://127.0.0.1:{ref['port']}/"
     proc, how = open_window(url, prefer)
-    print(f"Roundtable is open ({how}): {url}", flush=True)
+    print(f"Sabha is open ({how}): {url}", flush=True)
     try:
         if proc is not None:
             proc.wait()
@@ -277,48 +277,51 @@ def _desktop_file() -> Path:
 
 
 def install(remove: bool = False) -> list[str]:
-    """Add Roundtable to the app menu (or take it out again). Only touches Roundtable's own files."""
+    """Add Sabha to the app menu (or take it out again). Only touches its own files (and the older Roundtable entries)."""
     from . import icon
 
     lines: list[str] = []
     if sys.platform == "darwin":
-        app = Path.home() / "Applications" / "Roundtable.app"
+        app = Path.home() / "Applications" / "Sabha.app"
+        old = Path.home() / "Applications" / "Roundtable.app"          # the name before Sabha
+        for gone in (app, old) if remove else (old,):
+            if gone.exists():
+                shutil.rmtree(gone)
+                lines.append(f"removed {gone}")
         if remove:
-            if app.exists():
-                shutil.rmtree(app)
-                lines.append(f"removed {app}")
-            return lines or ["Roundtable was not in ~/Applications"]
+            return lines or ["Sabha was not in ~/Applications"]
         (app / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
         (app / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
         (app / "Contents" / "Info.plist").write_text(_PLIST, encoding="utf-8")
-        exe = app / "Contents" / "MacOS" / "Roundtable"
+        exe = app / "Contents" / "MacOS" / "Sabha"
         exe.write_text(f'#!/bin/sh\nexec "{_python_for_menu()}" -m roundtable_ai app --foreground "$@"\n', encoding="utf-8")
         exe.chmod(0o755)
         (app / "Contents" / "Resources" / "roundtable.icns").write_bytes(icon.icns())
-        lines.append(f"added {app}: open it from Launchpad or Spotlight (\"Roundtable\")")
+        lines.append(f"added {app}: open it from Launchpad or Spotlight (\"Sabha\")")
         return lines
     if os.name == "nt":
         start = Path(os.environ.get("APPDATA") or Path.home()) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
-        lnk = start / "Roundtable.lnk"
+        lnk = start / "Sabha.lnk"
+        for gone in (lnk, start / "Roundtable.lnk") if remove else (start / "Roundtable.lnk",):
+            if gone.exists():
+                gone.unlink()
+                lines.append(f"removed {gone}")
         if remove:
-            if lnk.exists():
-                lnk.unlink()
-                lines.append(f"removed {lnk}")
-            return lines or ["Roundtable was not in the Start menu"]
+            return lines or ["Sabha was not in the Start menu"]
         ico = config_dir() / "app" / "roundtable.ico"
         ico.parent.mkdir(parents=True, exist_ok=True)
         ico.write_bytes(icon.ico())
         ps = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:RT_LNK); $s.TargetPath = $env:RT_PY; "
               "$s.Arguments = '-m roundtable_ai app --foreground'; $s.IconLocation = $env:RT_ICO; "
-              "$s.WorkingDirectory = $env:USERPROFILE; $s.Description = 'Roundtable'; $s.Save()")
+              "$s.WorkingDirectory = $env:USERPROFILE; $s.Description = 'Sabha'; $s.Save()")
         env = dict(os.environ, RT_LNK=str(lnk), RT_PY=_python_for_menu(), RT_ICO=str(ico))
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True, env=env)
         if r.returncode != 0:
             from .errors import STATE, RTError
 
             raise RTError(STATE, "could not create the Start menu shortcut: " + (r.stderr or r.stdout).strip()[:300],
-                          "start Roundtable with: rt app")
-        return [f"added Roundtable to the Start menu ({lnk})"]
+                          "start Sabha with: rt app")
+        return lines + [f"added Sabha to the Start menu ({lnk})"]
     desktop = _desktop_file()
     icons = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "icons" / "hicolor"
     svg = icons / "scalable" / "apps" / f"{APP_ID}.svg"
@@ -328,7 +331,7 @@ def install(remove: bool = False) -> list[str]:
             if p.exists():
                 p.unlink()
                 lines.append(f"removed {p}")
-        return lines or ["Roundtable was not in the app menu"]
+        return lines or ["Sabha was not in the app menu"]
     svg.parent.mkdir(parents=True, exist_ok=True)
     png.parent.mkdir(parents=True, exist_ok=True)
     svg.write_bytes((Path(__file__).parent / "ui" / "icon.svg").read_bytes())
@@ -339,14 +342,14 @@ def install(remove: bool = False) -> list[str]:
     desktop.write_text("\n".join([
         "[Desktop Entry]",
         "Type=Application",
-        "Name=Roundtable",
+        "Name=Sabha",
         "GenericName=AI team workspace",
         "Comment=Several AI models plan, build and review your project together",
         f"Exec={exec_line}",
         f"Icon={APP_ID}",
         "Terminal=false",
         "Categories=Development;",
-        "Keywords=AI;Claude;Codex;agents;council;",
+        "Keywords=AI;Claude;Codex;agents;council;Roundtable;",
         f"StartupWMClass={APP_ID}",
         "StartupNotify=true",
         "",
@@ -358,7 +361,7 @@ def install(remove: bool = False) -> list[str]:
                 subprocess.run(tool, capture_output=True, timeout=20)
             except (OSError, subprocess.SubprocessError):
                 pass
-    lines.append(f"added Roundtable to the app menu ({desktop}); find it by typing \"Roundtable\"")
+    lines.append(f"added Sabha to the app menu ({desktop}); find it by typing \"Sabha\"")
     return lines
 
 
@@ -366,10 +369,10 @@ _PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Roundtable</string>
-  <key>CFBundleDisplayName</key><string>Roundtable</string>
+  <key>CFBundleName</key><string>Sabha</string>
+  <key>CFBundleDisplayName</key><string>Sabha</string>
   <key>CFBundleIdentifier</key><string>ai.roundtable.Roundtable</string>
-  <key>CFBundleExecutable</key><string>Roundtable</string>
+  <key>CFBundleExecutable</key><string>Sabha</string>
   <key>CFBundleIconFile</key><string>roundtable</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -381,9 +384,9 @@ _PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 
 def installed() -> bool:
     if sys.platform == "darwin":
-        return (Path.home() / "Applications" / "Roundtable.app").exists()
+        return (Path.home() / "Applications" / "Sabha.app").exists()
     if os.name == "nt":
-        return (Path(os.environ.get("APPDATA") or Path.home()) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Roundtable.lnk").exists()
+        return (Path(os.environ.get("APPDATA") or Path.home()) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Sabha.lnk").exists()
     return _desktop_file().exists()
 
 

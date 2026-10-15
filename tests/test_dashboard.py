@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import sys
 import threading
@@ -212,17 +213,32 @@ def test_dashboard_speaks_plainly_and_links_to_real_pages(rt, fake_home):
         assert not re.search(r"""(src|href)=["']https?:|url\(\s*["']?https?:|@import""", text), name
 
 
-def test_ui_layout_has_sidebar_question_page_and_keeps_selection():
-    js = (dashboard.UI_DIR / "app.js").read_text(encoding="utf-8")
-    css = (dashboard.UI_DIR / "app.css").read_text(encoding="utf-8")
-    # a question to the table opens on its own page (#/q/Q1), with each answer, side by side, and who ranked whom
-    assert "PAGES.q =" in js and "function questionPage(" in js and 'go("#/q/" + res.data.id)' in js
-    for part in ("Each AI's own answer", "Side by side", "Who ranked whom"):
-        assert part in js, part
-    # sidebar and right rail, the rail only where there is room
-    assert "function sidebar(" in js and "function rail(" in js
-    assert ".side {" in css and ".rail {" in css and "@media (max-width: 1359px) { .rail { display: none; } }" in css
-    # automatic updates never wipe text you are selecting; Ctrl+A selects what you read
-    assert "if (!force && selecting()) { pendingRender = true; return; }" in js
-    assert 'e.key === "a" && !typing' in js
-    assert "user-select: none" not in css
+def test_ui_is_the_sabha_design_with_real_views_and_scoped_panels():
+    ui = dashboard.UI_DIR
+    js = (ui / "app.js").read_text(encoding="utf-8")
+    sb = (ui / "sabha.js").read_text(encoding="utf-8")
+    css = (ui / "app.css").read_text(encoding="utf-8")
+    page = (ui / "index.html").read_text(encoding="utf-8")
+    # the design's stylesheet first, the app's own panels after it; both scripts; the design's dialog
+    assert page.index("/sabha.css") < page.index("/app.css") and page.index("/app.js") < page.index("/sabha.js")
+    assert '<dialog id="modal"' in page and "<title>Sabha</title>" in page
+    assert "/sabha.css" in dashboard.STATIC and "/sabha.js" in dashboard.STATIC
+    for name in ("sabha.css", "sabha.js"):
+        text = (ui / name).read_text(encoding="utf-8")
+        assert not re.search(r"""(src|href)=["']https?:|url\(\s*["']?https?:|@import""", text), name
+    # every main view is built from the real state; a question has its own address
+    for view in ("sbRoom", "sbCouncil", "sbPlan", "sbReviews", "sbActivity", "sbSettings"):
+        assert f"function {view}(" in sb, view
+    assert "PAGES.q =" in js and 'go("#/q/" + res.data.id)' in sb and "Independent answers" in sb and "Peer rankings" in sb
+    # the app's own panels never style the design: every rule in app.css is scoped, apart from a few named joins
+    allowed = (".legacy", "[data-theme", "::selection", "#toasts", ".sabha", ".brand", ".orbit-core", ".thinking-state", ".project-picker", ".sb-",
+               ".md-body", ".message-content", ".line-icon", "a.tid", ".system-event", ".question-people", ".follow-chip", ".earlier-questions", "@", "}")
+    rules = [r.strip() for r in re.findall(r"(?:^|})\s*([^{}@][^{}]*)\{", re.sub(r"/\*.*?\*/", "", css, flags=re.S))]
+    frames = re.compile(r"^(\d+%|from|to)(\s*,\s*(\d+%|from|to))*$")             # steps inside @keyframes
+    stray = [r for r in rules if r and not frames.match(r) and not all(sel.strip().startswith(allowed) for sel in r.split(","))]
+    assert not stray, stray[:5]
+    # automatic updates never wipe text you are selecting; Ctrl+A selects what you read; selection is a clear blue
+    assert "if (!force && selecting()) { pendingRender = true; return; }" in js and 'e.key === "a" && !typing' in js
+    assert "::selection { background: #b3d4fc" in css
+    # the mark: the Sabha lotus, used as the favicon, the app icon and inside the page
+    assert "aria-label=\"Sabha\"" in (ui / "icon.svg").read_text(encoding="utf-8")

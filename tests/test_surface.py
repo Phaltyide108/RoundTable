@@ -208,7 +208,7 @@ def test_dashboard_security(rt):
     port, token = ref["port"], ref["token"]
     base = f"http://127.0.0.1:{port}"
     page = urllib.request.urlopen(base + "/").read().decode()
-    assert token in page and "Roundtable" in page
+    assert token in page and "Sabha" in page
     state = json.loads(urllib.request.urlopen(base + "/api/state").read())
     assert state["project"]["review"] == "low"
 

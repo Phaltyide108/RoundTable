@@ -1,7 +1,7 @@
-/* Roundtable: a quiet room for a team of AIs.
+/* Sabha: a quiet room for a team of AIs.
    No framework, no build step: plain DOM rebuilt from polled state.
    Everything shown comes from /api/state; every change goes through /api/action
-   (a Roundtable operation, as the human) or /api/do (set up, start, connect).
+   (a Sabha operation, as the human) or /api/do (set up, start, connect).
 
    Chat first: the conversation is in the middle, with whatever needs you just above the
    message box. A slim bar on top shows the project, what is happening and the AIs as faces;
@@ -19,7 +19,7 @@ const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: 
 const ui = {
   mode: "note", level: null, allAsks: false, started: {}, preview: {}, confirm: {}, pick: {}, wstep: 0,
   accepting: {}, editOpen: false, linkOpen: false, cancelPlan: false, showDone: false, adding: false,
-  compose: "goal", askSkip: {}, followUp: null, modelOpen: null, freeOnly: false, qtab: {}, qside: {}, sideOpen: false,
+  compose: "goal", askSkip: {}, followUp: null, modelOpen: null, freeOnly: false, qtab: {}, qside: {}, sideOpen: false, ctab: {}, underView: "room",
 };
 const PAGES = {};
 
@@ -69,7 +69,7 @@ function csv(v) { const out = String(v || "").split(",").map(x => x.trim()).filt
 function cmds(v) { return String(v || "").split("&&").map(x => x.trim()).filter(Boolean); }
 function monogram(name) { const c = String(name || "").replace(/[^a-z0-9]/gi, ""); return (c.charAt(0).toUpperCase() + (c.charAt(1) || "")).slice(0, 2); }
 function listWords(xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; }
-function who(name) { return name === "human" ? "you" : name === "system" ? "Roundtable" : name; }
+function who(name) { return name === "human" ? "you" : name === "system" ? "Sabha" : name; }
 
 /* "claude-opus-5-5" -> "Claude Opus 5.5", "gpt-6.1-sol" -> "GPT-6.1 Sol" */
 function prettyModel(m) {
@@ -103,10 +103,10 @@ const STAGE_STEPS = [["drafting", "Each AI writes a plan"], ["critique", "They c
   ["proposed", "They agree on it"], ["awaiting_human", "You approve it"], ["locked", "They build it"]];
 
 const APP_GROUPS = [
-  ["terminal", "Opens in a terminal", "terminal", "Roundtable opens a terminal window for it, already connected."],
-  ["editor", "Opens in a code editor", "code", "Roundtable opens its folder in the editor; you send one message."],
+  ["terminal", "Opens in a terminal", "terminal", "Sabha opens a terminal window for it, already connected."],
+  ["editor", "Opens in a code editor", "code", "Sabha opens its folder in the editor; you send one message."],
   ["desktop", "Desktop apps", "desktop", "You open the app yourself and send one message."],
-  ["manual", "Anything else", "settings", "Any app that supports MCP. You add Roundtable to its settings."],
+  ["manual", "Anything else", "settings", "Any app that supports MCP. You add Sabha to its settings."],
 ];
 const APP_NAMES = {
   "claude-code": ["Claude Code", "Anthropic, in a terminal"], "claude-vscode": ["Claude Code", "Anthropic, in VS Code"], "claude-app": ["Claude app", "Plans and checks; can't edit files"],
@@ -232,9 +232,10 @@ function longMd(text, key, limit) {
 
 /* ---------------------------------------------------------------- routes */
 
-const ALIAS = { question: "q", overview: "room", home: "room", inbox: "room", tasks: "room", work: "room", models: "team", memory: "notes",
-  activity: "history", guide: "help", more: "team", reviews: "review", ask: "council", questions: "council" };
-const DRAWERS = ["plan", "task", "review", "ai", "add", "team", "alerts", "found", "settings", "usage", "notes", "help", "history", "switch", "council"];
+const ALIAS = { question: "q", overview: "room", home: "room", tasks: "plan", work: "plan", models: "team", memory: "notes",
+  search: "history", guide: "help", more: "team", ask: "council", questions: "council" };
+// details slide in over the view you were on; the main views (room, council, plan, reviews, activity, settings) are sabha.js
+const DRAWERS = ["task", "review", "ai", "add", "switch", "usage", "notes", "help", "team", "found", "alerts", "history", "plandetail", "inbox"];
 
 function parseRoute() {
   const parts = (location.hash || "#/room").replace(/^#\/?/, "").split("/").filter(Boolean).map(x => decodeURIComponent(x));
@@ -244,18 +245,19 @@ function parseRoute() {
   else if (page === "inbox" && rest[0] === "review" && rest[1]) { page = "review"; rest = [rest[1]]; }   // #/inbox/review/T3
   else if (page === "team" && rest[0] === "add") { page = "add"; rest = rest.slice(1); }                 // #/team/add
   else if (page === "team" && rest[0]) page = "ai";                                                    // #/team/opus
+  else if ((page === "council" || page === "ask" || page === "questions") && rest[0]) page = "q";        // #/council/Q2 is the question's page
   page = ALIAS[page] || page;
   if (!PAGES[page]) page = "room";
   return { page, parts: rest, sub: rest[0] || "" };
 }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
-function close() { go(ui.underQ ? "#/q/" + ui.underQ : "#/room"); }
+function close() { go(ui.underQ ? "#/q/" + ui.underQ : ui.underView ? SB_HASH[ui.underView] : "#/room"); }
 
 /* ---------------------------------------------------------------- toasts and server calls */
 
 function toast(title, body, opts) {
   opts = opts || {};
-  const t = h("div", { class: "toast" + (opts.error ? " err" : ""), role: opts.error ? "alert" : "status" },
+  const t = h("div", { class: "rt-toast" + (opts.error ? " err" : ""), role: opts.error ? "alert" : "status" },
     h("strong", { text: title }), body ? h("p", { class: "pre", text: body }) : null, opts.copy ? copyBox(opts.copy) : null);
   TOASTS.append(t);
   setTimeout(() => t.remove(), opts.error || opts.copy ? 12000 : 4500);
@@ -369,7 +371,7 @@ async function loadTask(id) {
 
 /* ---------------------------------------------------------------- render, keeping what the person typed */
 
-const SCROLLERS = [".feed", ".drawer-body", ".plan-side", ".crew", ".waiting", ".welcome-main"];
+const SCROLLERS = [".conversation-feed", ".drawer-body", ".plan-side", ".crew", ".waiting", ".welcome-main"];
 
 function snapshot() {
   const out = { fields: {}, focus: null, open: {}, scroll: {}, win: window.scrollY };
@@ -397,9 +399,9 @@ function restore(snap, samePage) {
     if (el.tagName === "TEXTAREA" && el.classList.contains("grow")) autosize(el);
   });
   // the conversation keeps its place whatever opens over it, and follows new messages when you are at the bottom
-  const feed = APP.querySelector(".feed");
+  const feed = APP.querySelector(".conversation-feed");
   if (feed) {
-    const was = snap.scroll[".feed"];
+    const was = snap.scroll[".conversation-feed"];
     // a question opens at its top; the conversation at its newest message
     feed.scrollTop = route.page === "q" && !samePage ? 0 : !was || was.bottom ? (route.page === "q" && was ? was.top : feed.scrollHeight) : was.top;
   }
@@ -425,19 +427,45 @@ function render() {
   const drawerKey = view === "room" && DRAWERS.includes(route.page) ? route.page + "/" + route.parts.join("/") : "";
   const freshDrawer = drawerKey && drawerKey !== drawerShown;
   drawerShown = drawerKey;
-  APP.replaceChildren(view === "setup" ? setupScreen(S) : view === "welcome" ? welcomeScreen(S) : roomView(freshDrawer));
-  const title = S.mode === "project" && S.project ? S.project.name + " · Roundtable" : "Roundtable";
+  APP.replaceChildren(view === "setup" ? h("div", { class: "legacy legacy-screen" }, setupScreen(S)) : view === "welcome" ? h("div", { class: "legacy legacy-screen" }, welcomeScreen(S)) : roomView(freshDrawer));
+  const title = S.mode === "project" && S.project ? S.project.name + " · Sabha" : "Sabha";
   if (document.title !== title) document.title = title;
   restore(snap, same);
   if (!same) {
-    const target = APP.querySelector(".drawer h1") || (view !== "room" ? APP.querySelector("h1, h2") : null);
+    const target = APP.querySelector(".rt-drawer h1") || (view !== "room" ? APP.querySelector("h1, h2") : null);
     if (target && (freshDrawer || view !== "room")) { target.setAttribute("tabindex", "-1"); target.focus({ preventScroll: true }); }
     if (view !== "room") window.scrollTo(0, 0);
   }
 }
 
-const THEMES = { auto: "Follow the system", snow: "Snow (light)", midnight: "Midnight (dark)", paper: "Paper (warm)" };
-function themeName() { const t = store("rt.theme"); return THEMES[t] ? t : "auto"; }
+const THEMES = { auto: "Follow the system", light: "Paper", dark: "After hours" };
+function themeName() { const t = { snow: "light", paper: "light", midnight: "dark", night: "dark" }[store("rt.theme")] || store("rt.theme"); return THEMES[t] ? t : "auto"; }
+function setTheme(t) { store("rt.theme", t); applyTheme(); render(); }
+function cycleTheme() { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); }
+function applyTheme() {
+  const t = themeName();
+  const dark = t === "dark" || (t === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}
+try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (themeName() === "auto") { applyTheme(); render(); } }); } catch (e) { /* old browsers */ }
+function themeButton(withLabel) {
+  const theme = themeName();
+  return h("button", { class: "ghost" + (withLabel ? "" : " icon-only"), type: "button", title: "Theme: " + THEMES[theme], "aria-label": "Change the theme (now " + THEMES[theme] + ")", onclick: cycleTheme },
+    icon(document.documentElement.dataset.theme === "dark" ? "moon" : "sun", "sm"), withLabel ? h("span", { text: "Theme: " + THEMES[theme] }) : null);
+}
+function themePicker() {
+  return h("div", { class: "themes" }, Object.entries(THEMES).map(([k, label]) => h("button", { type: "button", class: "theme-pick t-" + k, "aria-pressed": String(themeName() === k), onclick: () => setTheme(k) },
+    h("span", { class: "swatch", "aria-hidden": "true" }, h("i"), h("i"), h("i")), h("span", { text: label }))));
+}
+
+/* The Sabha mark (the same drawing as /icon.svg), inline so each theme can colour it. */
+const MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Sabha"><defs><path id="petal" d="M50 8.6C56.6 13.6 61.8 19.8 62.3 26.4 62.7 32.2 57.4 38.2 50 44.4 42.6 38.2 37.3 32.2 37.7 26.4 38.2 19.8 43.4 13.6 50 8.6Z"/><path id="tip" d="M50 2.4C52.9 4.9 54.4 7.4 54.4 9.6 54.4 12.1 52.4 13.6 50 13.6S45.6 12.1 45.6 9.6C45.6 7.4 47.1 4.9 50 2.4Z"/><path id="gap" d="M50 0C54 3.3 56.2 6.6 56.2 9.6 56.2 13.1 53.4 15.4 50 15.4S43.8 13.1 43.8 9.6C43.8 6.6 46 3.3 50 0Z"/><circle id="head" cx="50" cy="27" r="6"/><mask id="cut"><rect width="100" height="100" fill="#fff"/><g fill="#000"><use href="#head" transform="rotate(0 50 50)"/><use href="#head" transform="rotate(45 50 50)"/><use href="#head" transform="rotate(90 50 50)"/><use href="#head" transform="rotate(135 50 50)"/><use href="#head" transform="rotate(180 50 50)"/><use href="#head" transform="rotate(225 50 50)"/><use href="#head" transform="rotate(270 50 50)"/><use href="#head" transform="rotate(315 50 50)"/><use href="#gap" transform="rotate(0 50 50)"/><use href="#gap" transform="rotate(45 50 50)"/><use href="#gap" transform="rotate(90 50 50)"/><use href="#gap" transform="rotate(135 50 50)"/><use href="#gap" transform="rotate(180 50 50)"/><use href="#gap" transform="rotate(225 50 50)"/><use href="#gap" transform="rotate(270 50 50)"/><use href="#gap" transform="rotate(315 50 50)"/><circle cx="50" cy="50" r="16.4"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(22.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(67.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(112.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(157.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(202.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(247.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(292.5 50 50)"/><path d="M50 0 52.2 30 50 31.5 47.8 30Z" transform="rotate(337.5 50 50)"/></g></mask></defs><g fill="var(--mark-ink, #1d2152)" mask="url(#cut)"><use href="#petal" transform="rotate(0 50 50)"/><use href="#petal" transform="rotate(45 50 50)"/><use href="#petal" transform="rotate(90 50 50)"/><use href="#petal" transform="rotate(135 50 50)"/><use href="#petal" transform="rotate(180 50 50)"/><use href="#petal" transform="rotate(225 50 50)"/><use href="#petal" transform="rotate(270 50 50)"/><use href="#petal" transform="rotate(315 50 50)"/></g><circle cx="50" cy="50" r="12.3" fill="none" stroke="var(--mark-ink, #1d2152)" stroke-width="3.1"/><g fill="var(--mark-tip, #ea821e)"><use href="#tip" transform="rotate(0 50 50)"/><use href="#tip" transform="rotate(45 50 50)"/><use href="#tip" transform="rotate(90 50 50)"/><use href="#tip" transform="rotate(135 50 50)"/><use href="#tip" transform="rotate(180 50 50)"/><use href="#tip" transform="rotate(225 50 50)"/><use href="#tip" transform="rotate(270 50 50)"/><use href="#tip" transform="rotate(315 50 50)"/></g></svg>';
+function mark(size) {
+  const el = h("span", { class: "mark", "aria-hidden": "true" });
+  el.innerHTML = MARK_SVG;
+  if (size) el.style.width = el.style.height = size + "px";
+  return el;
+}
 function setTheme(t) { store("rt.theme", t); applyTheme(); render(); }
 function cycleTheme() { const order = Object.keys(THEMES); setTheme(order[(order.indexOf(themeName()) + 1) % order.length]); }
 function applyTheme() {
@@ -447,7 +475,7 @@ function applyTheme() {
 function themeButton(withLabel) {
   const theme = themeName();
   return h("button", { class: "ghost" + (withLabel ? "" : " icon-only"), type: "button", title: "Theme: " + THEMES[theme], "aria-label": "Change the theme (now " + THEMES[theme] + ")", onclick: cycleTheme },
-    icon(theme === "midnight" ? "moon" : "sun", "sm"), withLabel ? h("span", { text: "Theme: " + THEMES[theme] }) : null);
+    icon(theme === "night" ? "moon" : "sun", "sm"), withLabel ? h("span", { text: "Theme: " + THEMES[theme] }) : null);
 }
 function themePicker() {
   return h("div", { class: "themes" }, Object.entries(THEMES).map(([k, label]) => h("button", { type: "button", class: "theme-pick t-" + k, "aria-pressed": String(themeName() === k), onclick: () => setTheme(k) },
@@ -513,176 +541,16 @@ function avatar(handle, size, noLamp) {
   return el;
 }
 
-function displayName(handle) { return handle === "human" ? "You" : handle === "system" ? "Roundtable" : handle; }
+function displayName(handle) { return handle === "human" ? "You" : handle === "system" ? "Sabha" : handle; }
 
 /* ---------------------------------------------------------------- the room */
 
+/* Views that open as a full page in the middle (the rest slide in from the right, over the page). */
 function roomView(freshDrawer) {
-  const q = route.page === "q" && route.sub ? route.sub.toUpperCase() : DRAWERS.includes(route.page) ? ui.underQ || "" : "";
-  if (!q && ui.autoFollow) { if (ui.followUp === ui.autoFollow) { ui.followUp = null; ui.compose = "goal"; } ui.autoFollow = null; }
-  const main = q ? questionPage(q) : h("main", { class: "talk", "aria-label": "The conversation" }, progressLine(), feedView(), asksView(), composer());
-  const wrap = h("div", { class: "app" + (sideHidden() ? " side-off" : "") + (ui.sideOpen ? " side-open" : "") },
-    sidebar(), h("div", { class: "main" }, topbar(), h("div", { class: "main-row" }, main, rail())), h("div", { class: "side-scrim", onclick: () => { ui.sideOpen = false; render(); } }));
-  if (DRAWERS.includes(route.page)) wrap.append(...drawer(route.page, freshDrawer));
-  return wrap;
+  return sabhaShell(freshDrawer);        // sabha.js: the design's frame and views, with the details in .legacy panels
 }
 
-/* ---------------------------------------------------------------- the right rail (wide windows): what is happening now */
-
-function railSeat(x) {
-  const now = x.now && ago(x.now.t) < 600 ? x.now : null;
-  const [verb] = now ? STEP[now.kind] || ["is working"] : [""];
-  const lamp = lampOf(x);
-  const attn = needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state);
-  const working = lamp === "busy";
-  return h("button", { class: "rail-seat" + (working ? " working" : ""), type: "button", title: "See everything " + x.handle + " is doing", onclick: () => go("#/ai/" + x.handle) },
-    h("span", { class: "side-av" }, avatar(x.handle, "sm", true), h("i", { class: "lamp " + (attn ? "attn" : lamp || "off") })),
-    h("span", { class: "t" },
-      h("span", { class: "rail-name" }, h("strong", { text: x.handle }), h("span", { class: "faint", text: prettyModel(x.model) })),
-      h("span", { class: "rail-phrase" + (attn ? " you-text" : "") }, seatPhrase(x), working ? typing() : null),
-      now && now.kind !== "start" ? h("span", { class: "rail-step" + (["run", "edit", "read"].includes(now.kind) ? " mono" : "") },
-        h("span", { class: "faint", text: capital(verb.replace(/^is /, "")) + " · " + agoText(now.t) + " " }), fit(plainText(now.text), 140)) : null));
-}
-
-function rail() {
-  if (!S.seats.length) return null;
-  const p = S.plan;
-  const live = isLivePlan(p);
-  const kids = [h("section", { class: "rail-sec" },
-    h("div", { class: "spread" }, h("h2", { text: "Your AIs right now" }),
-      h("span", { class: "row" }, h("button", { class: "link", type: "button", onclick: () => go("#/add") }, "Add"), h("button", { class: "link", type: "button", onclick: () => go("#/team") }, "Manage"))),
-    h("div", { class: "rail-seats" }, S.seats.map(railSeat)))];
-  if (live && p.stage === "locked") {
-    const pr = progress(S);
-    const bar = h("div", { class: "bar", role: "img", "aria-label": `${pr.done} of ${pr.total} done` });
-    const done = h("i", { class: "done" }), going = h("i", { class: "going" });
-    done.style.width = pr.total ? (100 * pr.done / pr.total) + "%" : "0";
-    going.style.width = pr.total ? (100 * pr.active / pr.total) + "%" : "0";
-    bar.append(done, going);
-    kids.push(h("section", { class: "rail-sec" },
-      h("div", { class: "spread" }, h("h2", { text: "The plan" }), h("button", { class: "link", type: "button", onclick: () => go("#/plan") }, "Open")),
-      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 160) }), bar,
-      h("p", { class: "faint", text: `${pr.done} of ${pr.total} done · ${pr.active} in progress` }), taskGroups(4)));
-  } else if (p && p.goal && !live) {
-    kids.push(h("section", { class: "rail-sec" },
-      h("div", { class: "spread" }, h("h2", { text: "Last goal" }), h("span", { class: "pill ok", text: p.stage_label || "finished" })),
-      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 220) }), taskGroups(5)));
-  } else if (live) {
-    kids.push(h("section", { class: "rail-sec" },
-      h("div", { class: "spread" }, h("h2", { text: "The plan" }), h("button", { class: "link", type: "button", onclick: () => go("#/plan") }, "Open")),
-      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 160) }), planSteps(p)));
-  }
-  const running = (S.councils || []).filter(c => !["done", "failed", "cancelled"].includes(c.stage));
-  if (running.length) kids.push(h("section", { class: "rail-sec" }, h("h2", { text: "Questions being answered" }),
-    running.map(c => h("button", { class: "side-item q", type: "button", onclick: () => go("#/q/" + c.id) }, questionDot(c),
-      h("span", { class: "t", text: (c.kind === "rescue" ? "Second opinion on " + c.task : plainText(c.question).split("\n")[0]) + " · " + questionStatus(c).toLowerCase() })))));
-  const done = S.tasks.filter(t => t.status === "done").length;
-  const tokens = (S.councils || []).reduce((n, c) => n + (c.tokens || 0), 0);
-  kids.push(h("section", { class: "rail-sec rail-stats" },
-    h("div", null, h("strong", { text: String(done) }), h("span", { text: done === 1 ? "task done" : "tasks done" })),
-    h("div", null, h("strong", { text: String((S.councils || []).length) }), h("span", { text: "recent questions" })),
-    h("div", null, h("strong", { text: tokens ? num(tokens) : "–" }), h("span", { text: "tokens on them" }))));
-  return h("aside", { class: "rail", "aria-label": "What is happening now" }, kids);
-}
-
-/* ---------------------------------------------------------------- the sidebar (like ChatGPT's or Claude's) */
-
-function sideHidden() { return store("rt.side") === "off"; }
-function toggleSide() {
-  if (window.matchMedia("(max-width: 860px)").matches) ui.sideOpen = !ui.sideOpen;
-  else store("rt.side", sideHidden() ? "on" : "off");
-  render();
-}
-function newThread(mode) {
-  ui.compose = mode;
-  if (mode === "goal") ui.followUp = null;
-  ui.sideOpen = false;
-  go("#/room");
-  setTimeout(() => { const el = APP.querySelector("#composer-text"); if (el) el.focus(); }, 0);
-}
 function shortPath(root) { return String(root || "").replace(/^\/home\/[^/]+|^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/, "~"); }
-
-function sideItem(label, ic, hash, on, extra) {
-  return h("button", { class: "side-item" + (on ? " on" : ""), type: "button", "aria-current": on ? "page" : null, onclick: () => { ui.sideOpen = false; go(hash); } },
-    icon(ic, "sm"), h("span", { class: "t", text: label }), extra != null && extra !== "" ? h("span", { class: "side-count", text: String(extra) }) : null);
-}
-
-function questionDot(c) {
-  return h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work pulse"), "aria-hidden": "true" });
-}
-
-function sidebar() {
-  const p = S.project;
-  const qs = S.councils || [];
-  const cur = route.page === "q" ? (route.sub || "").toUpperCase() : "";
-  const live = isLivePlan(S.plan);
-  const pr = live && S.plan.stage === "locked" ? progress(S) : null;
-  const found = S.tasks.filter(t => t.status === "backlog").length;
-  const alerts = (S.alerts || []).length;
-  return h("nav", { class: "side", "aria-label": "Roundtable" },
-    h("div", { class: "side-top" },
-      h("button", { class: "side-proj", type: "button", title: "Switch project · " + p.root, onclick: () => go("#/switch") },
-        h("img", { src: "/icon.svg", alt: "" }), h("span", { class: "t" }, h("strong", { text: p.name }), h("span", { text: shortPath(p.root) })), icon("swap", "sm")),
-      h("button", { class: "ghost icon-only side-hide", type: "button", title: "Hide the sidebar", "aria-label": "Hide the sidebar", onclick: toggleSide }, icon("back", "sm"))),
-    h("div", { class: "side-new" },
-      h("button", { class: "side-btn", type: "button", onclick: () => newThread("goal"), disabled: live ? true : null, title: live ? "Finish or cancel the current plan first" : "Give your AIs something to build" },
-        icon("plus", "sm"), "New goal"),
-      h("button", { class: "side-btn", type: "button", onclick: () => newThread("ask"), title: MODES.ask.tip }, icon("ask", "sm"), "Ask the table")),
-    h("div", { class: "side-scroll" },
-      h("div", { class: "side-group" },
-        sideItem("Conversation", "history", "#/room", route.page === "room"),
-        live ? sideItem(pr ? "Plan · " + pr.done + " of " + pr.total + " done" : "Plan · " + (S.plan.stage_label || "in progress"), "plan", "#/plan", route.page === "plan") : null,
-        found ? sideItem("Work they found", "plus", "#/found", route.page === "found", found) : null,
-        alerts ? sideItem("Problems", "alert", "#/alerts", route.page === "alerts", alerts) : null),
-      h("div", { class: "side-group" },
-        h("div", { class: "side-label" }, h("span", { text: "Questions" }), qs.length ? h("button", { class: "link", type: "button", onclick: () => go("#/council") }, "All") : null),
-        qs.length ? qs.map(c => h("button", { class: "side-item q" + (c.id === cur ? " on" : ""), type: "button", title: c.question, "aria-current": c.id === cur ? "page" : null,
-            onclick: () => { ui.sideOpen = false; go("#/q/" + c.id); } },
-            questionDot(c), h("span", { class: "t", text: c.kind === "rescue" ? "Second opinion on " + c.task : plainText(c.question).split("\n")[0] })))
-          : h("p", { class: "side-empty", text: "Questions you ask the table show up here, with every AI's answer side by side." }))),
-    h("div", { class: "side-team" },
-      h("div", { class: "side-label" }, h("span", { text: "Team" }), h("button", { class: "link", type: "button", onclick: () => go("#/team") }, "Manage")),
-      S.seats.map(x => {
-        const lamp = lampOf(x);
-        const attn = needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state);
-        return h("button", { class: "side-seat" + (route.page === "ai" && route.sub === x.handle ? " on" : ""), type: "button", title: `${x.handle} · ${prettyModel(x.model)}`, onclick: () => go("#/ai/" + x.handle) },
-          h("span", { class: "side-av" }, avatar(x.handle, "sm", true), h("i", { class: "lamp " + (attn ? "attn" : lamp || "off") })),
-          h("span", { class: "t" }, h("strong", null, x.handle, h("span", { class: "faint", text: " " + prettyModel(x.model) })), h("span", { text: seatPhrase(x) })));
-      }),
-      h("button", { class: "side-item add", type: "button", onclick: () => go("#/add") }, icon("plus", "sm"), h("span", { class: "t", text: "Add an AI" }))),
-    h("div", { class: "side-foot" },
-      h("button", { class: "ghost icon-only", type: "button", title: "Usage and limits", "aria-label": "Usage and limits", onclick: () => go("#/usage") }, icon("usage", "sm")),
-      h("button", { class: "ghost icon-only", type: "button", title: "Notes for the AIs", "aria-label": "Notes for the AIs", onclick: () => go("#/notes") }, icon("notes", "sm")),
-      themeButton(),
-      h("button", { class: "ghost icon-only", type: "button", title: "Settings", "aria-label": "Settings", onclick: () => go("#/settings") }, icon("settings", "sm")),
-      h("button", { class: "ghost icon-only", type: "button", title: "Help", "aria-label": "Help", onclick: () => go("#/help") }, icon("help", "sm"))));
-}
-
-/* The slim bar over the conversation: what is happening now, and search. */
-function topbar() {
-  const q = route.page === "q" && route.sub ? councilOf(route.sub.toUpperCase()) || cache.council[route.sub.toUpperCase()] : null;
-  const [title, sub] = route.page === "q" ? [q ? (q.kind === "rescue" ? "Second opinion on " + q.task : fit(plainText(q.question).split("\n")[0], 90)) : "A question to the table",
-    q ? questionStatus(q) : ""] : headline();
-  return h("header", { class: "topbar" },
-    h("div", { class: "tb-left" },
-      h("button", { class: "ghost icon-only tb-btn side-toggle", type: "button", title: "Show the sidebar", "aria-label": "Show the sidebar", onclick: toggleSide }, icon("menu", "sm")),
-      h("div", { class: "tb-mid", role: "status", title: sub || null }, h("strong", { text: title }), sub ? h("span", { text: sub }) : null)),
-    h("div", { class: "tb-right" },
-      isLivePlan(S.plan) && route.page !== "q" ? h("button", { class: "ghost tb-btn", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"), h("span", { class: "hide-narrow", text: "Plan" })) : null,
-      S.project.frozen ? pauseButton() : null,
-      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Search everything that happened", "aria-label": "Search", onclick: () => go("#/history") }, icon("search", "sm"))));
-}
-
-/* A hairline under the top bar that fills as the plan's tasks get done. */
-function progressLine() {
-  const p = S.plan;
-  if (!isLivePlan(p) || p.stage !== "locked") return null;
-  const pr = progress(S);
-  const done = h("i", { class: "done" }), going = h("i", { class: "going" });
-  done.style.width = pr.total ? (100 * pr.done / pr.total) + "%" : "0";
-  going.style.width = pr.total ? (100 * pr.active / pr.total) + "%" : "0";
-  return h("div", { class: "progress-line", role: "img", "aria-label": `${pr.done} of ${pr.total} tasks done` }, done, going);
-}
 
 function pauseButton(full) {
   if (!S.seats.length) return null;
@@ -757,7 +625,7 @@ function say(e) {
   const T = e.task;
   const title = T && taskOf(T) ? taskOf(T).title : "";
   switch (e.type) {
-    case "project.created": return { marker: "Roundtable is set up. Your AIs will meet here.", icon: "check" };
+    case "project.created": return { marker: "Sabha is set up. Your AIs will meet here.", icon: "check" };
     case "seat.added": {
       const m = t.match(/seat (\S+) added \(([^,]+),/);
       return m ? { actor: "human", text: `Added ${m[1]} (${prettyModel(m[2])}) to the table` } : { actor: "human", text: plainText(t) };
@@ -871,60 +739,8 @@ async function loadEarlier(btn) {
   render();
 }
 
-function feedView() {
-  const inner = h("div", { class: "feed-inner" });
-  const events = allEvents();
-  if (events.length >= 80 && !cache.olderDone) inner.append(h("div", { class: "earlier" },
-    h("button", { class: "ghost small", type: "button", onclick: e => loadEarlier(e.currentTarget) }, "Show earlier messages")));
-  if (!S.plan && !(S.councils || []).length) {
-    // nothing has happened yet: just the welcome, in the middle (setting-up messages are in History)
-    inner.append(introCard());
-    return h("div", { class: "feed fresh", role: "log", "aria-label": "What your AIs are doing" }, inner);
-  }
-  let day = "", cur = null;
-  events.forEach(e => {
-    const m = say(e);
-    if (!m) return;
-    if (e.day !== day) { day = e.day; inner.append(h("div", { class: "day", text: dayLabel(day) })); cur = null; }
-    const actor = m.actor || e.actor;
-    if (!m.marker && !m.council && actor === "human" && (m.tone === "quiet" || /^(task|seat)\./.test(e.type))) {
-      // something you did (not something you said): a quiet line in the middle, like the other milestones
-      m.marker = /^(Added|Removed) /.test(m.text) ? "You " + m.text[0].toLowerCase() + m.text.slice(1) : m.text;
-      m.icon = "check";
-    }
-    if (m.marker) {
-      const said = String(m.marker).replace(/\b1 tasks\b/g, "1 task");
-      inner.append(h("div", { class: "marker" + (m.you ? " you" : "") }, icon(m.icon || "dot", "sm"), h("span", null, linkify(said)), h("time", { text: e.at })));
-      cur = null;
-      return;
-    }
-    if (m.council) {
-      inner.append(councilCard(m.council, e, m.text));
-      cur = null;
-      return;
-    }
-    if (actor === "human") {
-      // your own words: a chat bubble on the right
-      inner.append(h("div", { class: "me" }, h("div", { class: "bubble" }, longText(m.text, "ev" + e.id, "", 420)), h("time", { text: e.at })));
-      cur = null;
-      return;
-    }
-    let line = longText(m.text, "ev" + e.id, "line" + (m.tone ? " " + m.tone : ""));
-    if (m.tone === "good" || m.tone === "bad") line = h("div", { class: "line-row " + m.tone }, icon(m.tone === "good" ? "check" : "alert", "sm"), line);
-    if (cur && cur.actor === actor && cur.count < 10) { cur.lines.append(line); cur.count++; return; }
-    const x = seatOf(actor);
-    cur = { actor, count: 1, lines: h("div", { class: "lines" }, line) };
-    inner.append(h("article", { class: "msg" }, avatar(actor, null, true),
-      h("div", { class: "meta" }, h("strong", { text: displayName(actor) }), x ? h("span", { class: "model", text: prettyModel(x.model) }) : null, h("time", { text: e.at })),
-      cur.lines));
-  });
-  const live = S.seats.filter(x => x.now && (running(x) ? x.runner.state === "working" || ago(x.now.t) < 120 : (x.active || x.live) && ago(x.now.t) < 600));
-  if (live.length && !S.project.frozen) inner.append(h("div", { class: "live-now", "aria-live": "off" }, live.map(liveCard)));
-  return h("div", { class: "feed", role: "log", "aria-label": "What your AIs are doing" }, inner);
-}
-
 const STEP = { think: ["is thinking", "notes"], say: ["says", "send"], run: ["is running a command", "terminal"], edit: ["is editing", "code"],
-  read: ["is reading", "search"], tool: ["is using Roundtable", "team"], done: ["finished a step", "check"], error: ["hit a problem", "alert"],
+  read: ["is reading", "search"], tool: ["is using Sabha", "team"], done: ["finished a step", "check"], error: ["hit a problem", "alert"],
   start: ["is starting", "play"] };
 function ago(t) { return t ? Math.max(0, (Date.now() / 1000) - Number(t)) : 1e9; }
 function agoText(t) {
@@ -932,90 +748,13 @@ function agoText(t) {
   return s < 45 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago";
 }
 
-function liveCard(x) {
-  const [verb, ic] = STEP[x.now.kind] || ["is working", "dot"];
-  const working = running(x) ? x.runner.state === "working" : ago(x.now.t) < 90;
-  return h("button", { class: "live", type: "button", title: "See everything " + x.handle + " is doing", onclick: () => go("#/ai/" + x.handle) },
-    avatar(x.handle, "sm", true),
-    h("span", { class: "live-body" },
-      h("span", { class: "live-head" }, h("strong", { text: x.handle }), " ", verb,
-        working ? h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")) : h("span", { class: "faint", text: " · " + agoText(x.now.t) })),
-      h("span", { class: "live-text" + (x.now.kind === "run" || x.now.kind === "edit" ? " mono" : "") }, x.now.text)),
-    icon(ic, "sm"));
-}
-
-function introCard() {
-  const ideas = [["goal", "Add a dark mode switch to the settings page, with tests."],
-    ["ask", "What is the riskiest part of this code, and why?"], ["goal", "Find and fix the slowest test in this project."]];
-  return h("section", { class: "empty" },
-    h("div", { class: "empty-faces", "aria-hidden": "true" }, S.seats.map(x => avatar(x.handle, "lg", true))),
-    h("h1", { text: S.seats.length ? "Your AIs are at the table" : "Bring your AIs to the table" }),
-    h("p", { text: S.seats.length ? "Give them something to build, or ask them a question. They plan, build and check each other's work here, and you see every step." : "Add two or more AIs, ideally from different companies, so they catch each other's mistakes." }),
-    S.seats.length ? h("div", { class: "ideas" }, ideas.map(([mode, text]) => h("button", { type: "button", class: "idea",
-      onclick: () => { ui.compose = mode; render(); const el = APP.querySelector("#composer-text"); if (el) { el.value = text; autosize(el); el.focus(); } } },
-      icon(mode === "ask" ? "ask" : "send", "sm"), text))) : null);
-}
-
 /* ---------------------------------------------------------------- asking the table */
 
 function councilOf(id) { return (S.councils || []).find(c => c.id === id) || null; }
 
-function memberState(c, m) {
-  const failedHere = m.error && [m.answer, m.rank, m.final].includes("failed");
-  if (failedHere && (m.answer === "failed" || c.stage !== "answering")) return ["Couldn't: " + fit(plainText(m.error), 90), "bad"];
-  if (c.stage === "answering") return m.answer === "done" ? ["Answered", "good"] : ["Answering", "busy"];
-  if (c.stage === "ranking") return m.answer !== "done" ? ["No answer", "quiet"] : m.rank === "done" ? ["Ranked the answers", "good"] : ["Ranking the answers", "busy"];
-  if (c.stage === "combining") return c.chair === m.seat ? ["Writing the final answer", "busy"] : ["Done", "quiet"];
-  if (c.stage === "done") return c.chair === m.seat ? [c.kind === "rescue" ? "Sent its diagnosis" : "Wrote the final answer", "good"]
-    : m.answer === "done" ? ["Answered and ranked", "quiet"] : ["No answer", "quiet"];
-  return [capital(c.stage), "quiet"];
-}
-
 function placeOf(c, seat) {
   const i = (c.ranking || []).findIndex(r => r.seat === seat);
   return i < 0 ? null : i + 1;
-}
-
-function councilCard(id, e, fallback) {
-  const c = councilOf(id);
-  const rescue = (c && c.kind === "rescue") || (e && e.type === "council.rescue");
-  const head = h("div", { class: "council-head" }, h("span", { class: "council-mark", "aria-hidden": "true" }, icon(rescue ? "review" : "ask", "sm")),
-    h("strong", { text: rescue ? `Second opinion${c && c.task ? " on " + c.task : ""}` : "You asked the table" }),
-    c && !["done"].includes(c.stage) ? h("span", { class: "pill " + (c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "" : "work"),
-      text: { answering: rescue ? "Looking" : "Answering", ranking: "Ranking", combining: "Combining", failed: "Couldn't answer", cancelled: "Stopped" }[c.stage] || c.stage }) : null,
-    e ? h("time", { text: e.at }) : null);
-  if (!c) return h("article", { class: "council" }, head, h("p", { class: "muted", text: fallback || id }),
-    h("div", { class: "row" }, h("button", { class: "small", type: "button", onclick: () => go("#/q/" + id) }, "Open it")));
-  const members = h("ul", { class: "council-members plain" }, c.members.map(m => {
-    const [txt, tone] = memberState(c, m);
-    const place = c.stage === "done" && c.ranking.length > 1 ? placeOf(c, m.seat) : null;
-    return h("li", { class: "cm " + tone }, avatar(m.seat, "sm", true), h("strong", { text: m.seat }),
-      h("span", { class: "cm-state" }, txt, tone === "busy" ? h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")) : null),
-      place ? h("span", { class: "place p" + place, title: `The others ranked its answer #${place}` }, "#" + place) : null);
-  }));
-  const liveLines = c.members.filter(m => memberState(c, m)[1] === "busy").map(m => {
-    const x = seatOf(m.seat);
-    const now = x && x.now && ago(x.now.t) < 180 ? x.now : null;
-    if (!now || now.kind === "start") return null;
-    const [verb] = STEP[now.kind] || ["is working"];
-    return h("p", { class: "council-live" }, h("strong", { text: m.seat }), " " + verb + ": ",
-      h("span", { class: now.kind === "run" || now.kind === "edit" || now.kind === "read" ? "mono" : "", text: fit(now.text, 160) }));
-  }).filter(Boolean);
-  const kids = [head, rescue ? null : h("div", { class: "council-q" }, longText(c.question, "cq-" + id, "", 260)), members,
-    liveLines.length ? h("div", { class: "council-lives" }, liveLines) : null];
-  if (c.final) {
-    const by = c.chair ? (rescue ? `${c.chair}'s diagnosis` : c.ranking.length > 1 && placeOf(c, c.chair) === 1
-      ? `The table's answer, written by ${c.chair}, whose answer the others ranked best` : `The table's answer, written by ${c.chair}`) : "The answer";
-    kids.push(h("div", { class: "council-final" }, h("p", { class: "council-by", text: by }),
-      longMd(c.final + (c.final_long ? "\n\n…" : ""), "cf-" + id, 900)));
-  }
-  if (c.stage === "failed" && c.error) kids.push(h("p", { class: "bad-text", text: plainText(c.error) }));
-  const actions = [h("button", { class: "small", type: "button", onclick: () => go("#/q/" + id) }, icon("review", "sm"), c.stage === "done" ? "See every answer" : "Watch it")];
-  if (c.stage === "done" && !rescue) actions.push(
-    h("button", { class: "small", type: "button", onclick: () => askFollowUp(c) }, icon("ask", "sm"), "Ask a follow-up"),
-    h("button", { class: "small", type: "button", onclick: () => buildFrom(c) }, icon("plan", "sm"), "Build this"));
-  kids.push(h("div", { class: "row" }, actions));
-  return h("article", { class: "council" + (rescue ? " rescue" : "") + " st-" + c.stage }, kids);
 }
 
 /* ---------------------------------------------------------------- a question to the table, on its own page
@@ -1034,114 +773,6 @@ function copyText(text, what) {
 }
 
 function typing() { return h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")); }
-
-function questionStages(d, rescue) {
-  const def = rescue ? [["answering", "Reads the failure"], ["done", "Sends a diagnosis"]]
-    : [["answering", "1 · Each answers alone"], ["ranking", "2 · They rank, without names"], ["combining", "3 · The best combines them"]];
-  const at = d.stage === "done" ? def.length : Math.max(0, def.findIndex(x => x[0] === d.stage));
-  const stopped = d.stage === "failed" || d.stage === "cancelled";
-  return h("ol", { class: "q-stages" }, def.map(([sid, label], i) => h("li", { class: i < at ? "done" : i === at && !stopped ? "now" : stopped && i === at ? "stop" : "" },
-    h("span", { class: "tick", "aria-hidden": "true" }, i < at ? icon("check", "sm") : i === at && !stopped ? typing() : null), h("span", { text: label }))));
-}
-
-function questionPage(id) {
-  const d = cache.council[id];
-  const shell = (...kids) => h("main", { class: "talk qpage", "aria-label": "A question to the table" }, h("div", { class: "feed" }, h("div", { class: "feed-inner q-inner" }, kids)));
-  if (!d) { loadCouncil(id).then(render); return shell(h("p", { class: "muted", text: "Loading…" })); }
-  if (d.ok === false) return shell(note(plainText(d.message) || "There is no such question."), h("div", { class: "row" }, h("button", { type: "button", onclick: () => go("#/room") }, icon("back", "sm"), "Back to the conversation")));
-  const rescue = d.kind === "rescue";
-  const answers = d.parts.filter(x => x.stage === "answer");
-  const ranks = d.parts.filter(x => x.stage === "rank");
-  const finished = ["done", "failed", "cancelled"].includes(d.stage);
-  const placeOfSeat = seat => { const i = (d.ranking || []).findIndex(r => r.seat === seat); return i < 0 ? 0 : i + 1; };
-  const ranked = (d.ranking || []).length > 1;
-  const kids = [];
-
-  kids.push(rescue
-    ? h("div", { class: "box" }, h("p", { class: "faint", text: `Asked by Roundtable after ${d.task} failed its tests twice` }), longText(d.question, "qq-" + id, "", 600))
-    : h("div", { class: "me" }, h("div", { class: "bubble" }, longText(d.question, "qq-" + id, "", 600)), h("time", { text: `${d.at} · to ${d.members.join(", ")}` })));
-  kids.push(questionStages(d, rescue));
-
-  if (d.final) {
-    const by = d.chair ? (rescue ? `${d.chair}, from another company than the builder` : ranked && placeOfSeat(d.chair) === 1
-      ? `Written by ${d.chair}, whose answer the others ranked best, from every answer and review` : `Written by ${d.chair}, from every answer and review`) : "";
-    kids.push(h("article", { class: "q-final" },
-      h("header", null, h("span", { class: "q-badge", "aria-hidden": "true" }, icon("check", "sm")),
-        h("div", { class: "t" }, h("strong", { text: rescue ? `${d.chair}'s diagnosis` : "The table's answer" }), by ? h("span", { text: by }) : null),
-        h("button", { class: "ghost small", type: "button", onclick: () => copyText(d.final, "The table's answer is on your clipboard.") }, icon("copy", "sm"), "Copy")),
-      h("div", { class: "q-body" }, md(d.final))));
-  } else if (!finished) {
-    kids.push(h("article", { class: "q-final waiting" }, h("header", null, h("span", { class: "q-badge", "aria-hidden": "true" }, typing()),
-      h("div", { class: "t" }, h("strong", { text: questionStatus(d) }), h("span", { text: rescue ? "Its diagnosis appears here." : "The final answer appears here once they have answered and ranked each other." })))));
-  }
-  if (d.error) kids.push(note(plainText(d.error), d.stage === "failed" ? "warn" : ""));
-
-  if (answers.length) {
-    const side = !!ui.qside[id] && answers.length > 1;
-    const best = (d.ranking || [])[0];
-    const tab = answers.some(a => a.seat === ui.qtab[id]) ? ui.qtab[id] : best && answers.some(a => a.seat === best.seat) ? best.seat : answers[0].seat;
-    const meta = a => {
-      const x = seatOf(a.seat);
-      const place = ranked ? placeOfSeat(a.seat) : 0;
-      return h("div", { class: "q-meta" }, avatar(a.seat, "sm", true), h("strong", { text: a.seat }), h("span", { class: "faint", text: prettyModel((x || {}).model || "") }),
-        place ? h("span", { class: "place p" + place, title: "Where the others ranked it" }, "#" + place) : null,
-        h("span", { class: "faint grow-r", text: [a.label && !rescue ? "Answer " + a.label : "", a.seconds ? `${Math.round(a.seconds)} s` : "", a.tokens ? `${num(a.tokens)} tokens` : ""].filter(Boolean).join(" · ") }),
-        a.text ? h("button", { class: "ghost icon-only small", type: "button", title: "Copy this answer", "aria-label": "Copy " + a.seat + "'s answer", onclick: () => copyText(a.text, a.seat + "'s answer is on your clipboard.") }, icon("copy", "sm")) : null);
-    };
-    const body = a => a.status === "running" ? h("p", { class: "muted q-typing" }, a.seat + " is writing its answer ", typing())
-      : a.error ? note(plainText(a.error), "warn") : h("div", { class: "q-body" }, md(a.text || ""));
-    const tabs = answers.length > 1 ? h("div", { class: "q-tabs", role: "tablist", "aria-label": "Each AI's answer" },
-      answers.map(a => h("button", { class: "q-tab", type: "button", role: "tab", "aria-selected": String(!side && a.seat === tab), onclick: () => { ui.qtab[id] = a.seat; ui.qside[id] = false; render(); } },
-        avatar(a.seat, "xs", true), h("span", { text: a.seat }), a.status === "running" ? typing() : a.status === "failed" ? h("span", { class: "bad-text", text: "!" }) : null)),
-      h("button", { class: "q-tab sbs", type: "button", "aria-pressed": String(side), title: "Read every answer next to each other", onclick: () => { ui.qside[id] = !side; render(); } }, icon("swap", "sm"), "Side by side")) : null;
-    kids.push(h("section", { class: "q-sec" },
-      h("h2", { text: rescue ? "What it found" : "Each AI's own answer" }),
-      rescue ? null : h("p", { class: "muted", text: "Written before any of them saw the others'." }),
-      tabs,
-      side ? h("div", { class: "q-cols" }, answers.map(a => h("div", { class: "q-answer" }, meta(a), body(a))))
-        : (a => h("div", { class: "q-answer", role: tabs ? "tabpanel" : null }, meta(a), body(a)))(answers.find(a => a.seat === tab))));
-  }
-
-  if (!rescue && ranks.length && answers.length > 1) {
-    const authors = answers.filter(a => a.label).slice().sort((a, b) => (placeOfSeat(a.seat) || 99) - (placeOfSeat(b.seat) || 99));
-    const row = r => h("tr", null, h("th", { scope: "row" }, h("span", { class: "q-who" }, avatar(r.seat, "xs", true), r.seat)),
-      authors.map(a => {
-        const i = (r.ranking || []).indexOf(a.label);
-        return h("td", { class: (a.seat === r.seat ? "self " : "") + (i === 0 ? "first" : ""), title: a.seat === r.seat ? "Its own answer (it didn't know)" : null },
-          r.status === "running" ? typing() : i < 0 ? "–" : "#" + (i + 1));
-      }));
-    const avg = h("tr", { class: "avg" }, h("th", { scope: "row", text: "Average place" }), authors.map(a => {
-      const r = (d.ranking || []).find(x => x.seat === a.seat);
-      return h("td", { text: r && r.avg != null ? String(r.avg) : "–" });
-    }));
-    kids.push(h("section", { class: "q-sec" },
-      h("h2", { text: "Who ranked whom" }),
-      h("p", { class: "muted", text: "Each AI saw the answers as Answer A, B, C, in random order and without names, and ranked them all, its own included (shaded)." }),
-      h("div", { class: "q-table-wrap" }, h("table", { class: "q-table" },
-        h("thead", null, h("tr", null, h("th", { scope: "col", text: "Ranked by" }), authors.map(a => h("th", { scope: "col" }, h("span", { class: "q-who" }, avatar(a.seat, "xs", true), a.seat), h("span", { class: "faint", text: "Answer " + a.label }))))),
-        h("tbody", null, ranks.map(row)), ranked ? h("tfoot", null, avg) : null)),
-      ranks.map(r => h("details", { class: "taskcard", "data-k": `rev-${id}-${r.seat}` },
-        h("summary", null, icon("chevron", "sm"), avatar(r.seat, "sm", true), h("span", null, `Why ${r.seat} ranked them this way`),
-          r.status === "running" ? h("span", { class: "pill work", text: "ranking" }) : null),
-        r.error ? note(plainText(r.error), "warn") : h("div", { class: "q-body" }, md(String(r.text || "").split("FINAL RANKING:")[0]))))));
-  }
-
-  const actions = [];
-  if (d.stage === "done" && !rescue) actions.push(h("button", { class: "go", type: "button", onclick: () => buildFrom(d) }, icon("plan", "sm"), "Build this"));
-  if (!finished) actions.push(h("button", { class: "danger", type: "button",
-    onclick: e => act("council.cancel", { id }, { button: e.currentTarget, title: "Stopped", after: () => { delete cache.council[id]; } }) }, "Stop it"));
-  kids.push(h("div", { class: "q-foot" }, actions.length ? h("div", { class: "row" }, actions) : null,
-    h("p", { class: "faint", text: `${num(d.tokens)} tokens in all. They could read your project but not change it.` })));
-
-  const main = h("main", { class: "talk qpage", "aria-label": "A question to the table" }, h("div", { class: "feed" }, h("div", { class: "feed-inner q-inner" }, kids)));
-  if (d.stage === "done" && !rescue) {
-    ui.compose = "ask";
-    ui.followUp = id;
-    ui.autoFollow = id;
-    main.append(composer(true));
-  }
-  return main;
-}
 
 function askFollowUp(c) {
   ui.compose = "ask";
@@ -1207,13 +838,13 @@ function buildAsks() {
   if (runnable.length > 1) {
     const names = listWords(runnable.map(x => x.handle));
     asks.push({ key: "start-many", tone: "info", icon: "play", title: `${names} aren't running yet`,
-      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal: click its name under Team.",
+      body: "Let Sabha run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal: click its name under Team.",
       actions: [{ label: "Run them in the background", primary: true, runSeats: runnable.map(x => x.handle) }] });
   }
   fresh.filter(x => !(runnable.length > 1 && runnable.includes(x))).forEach(x => {
     const info = ui.started[x.handle];
     asks.push({ key: "start-" + x.handle, tone: "info", who: x.handle, title: `${x.handle} isn't at the table yet`,
-      body: info ? "" : (x.can_run ? "Let Roundtable run it in the background: it wakes it whenever there is work. Or open it in a terminal yourself." : startHint(x)),
+      body: info ? "" : (x.can_run ? "Let Sabha run it in the background: it wakes it whenever there is work. Or open it in a terminal yourself." : startHint(x)),
       extra: info ? startedBox(x, info) : null,
       actions: x.can_run ? [{ label: "Run in the background", primary: true, runSeats: [x.handle] }, { label: "Open a terminal instead", run: b => startSeat(x, b) }]
         : [{ label: startLabel(x), primary: true, run: b => startSeat(x, b) }, { label: "How to start it", go: "ai/" + x.handle }] });
@@ -1231,7 +862,7 @@ async function runSeats(handles, btn) {
   busy(btn, false);
   if (bad.length) toast(capital(plainText(bad[0].message)) || "Could not start it", plainText(bad[0].hint || ""), { error: true });
   else toast(handles.length === 1 ? `${handles[0]} now runs in the background` : `${listWords(handles)} now run in the background`,
-    "Roundtable wakes them whenever there is work. Watch them at the bottom of the conversation.");
+    "Sabha wakes them whenever there is work. Watch them at the bottom of the conversation.");
   await refresh(true);
 }
 
@@ -1267,8 +898,6 @@ function asksView() {
 
 function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 200) + "px"; }
 
-const QUICK = { placeholder: "Tell them what to do, like “sol: fix the usage numbers. opus: add a thinking setting”",
-  hint: "One AI splits your message into tasks; if you name an AI for a part, it gets that part. Tests and checks still run.", send: "Start" };
 const MODES = {
   goal: { placeholder: "What should your AIs build?",
     hint: "Say what, where, and how you'll know it works. They each write a plan without seeing the others', comment on each other's, and bring you one plan.", send: "Start planning" },
@@ -1282,72 +911,6 @@ const MODES = {
     tip: "Every AI answers on its own, they rank each other's answers without names, and the best one writes the final answer.",
     hint: "Each AI answers on its own, then they rank each other's answers without knowing who wrote which, and the best one writes the final answer. They can read your project but change nothing." },
 };
-
-function composer(followOnly) {
-  const p = S.plan;
-  if (!S.seats.length) return h("footer", { class: "composer" }, h("div", { class: "composer-inner" },
-    h("div", { class: "box off" }, h("p", { class: "muted", text: "Add your AIs first. Then you'll give them a goal here." }),
-      h("button", { class: "go", type: "button", onclick: () => go("#/welcome") }, icon("plus", "sm"), "Add your AIs"))));
-  const live = isLivePlan(p);
-  const mode = ui.compose === "ask" ? "ask" : !live ? "goal" : ["note", "problem", "task"].includes(ui.compose) ? ui.compose : "note";
-  const quick = ui.planMode === "quick";
-  const M = followOnly ? Object.assign({}, MODES.ask, { placeholder: "Ask a follow-up. They see this question and its answer.", hint: "" })
-    : mode === "goal" && quick ? Object.assign({}, MODES.goal, QUICK) : MODES[mode];
-  const level = ui.level || S.project.review || "mid";
-  const askers = (S.can_ask || []).filter(hd => !ui.askSkip[hd]);
-  const ta = h("textarea", { id: "composer-text", class: "grow", "data-k": "composer-" + mode, rows: "1", placeholder: M.placeholder, "aria-label": mode === "goal" ? "The goal" : M.label,
-    oninput: e => autosize(e.target),
-    onkeydown: e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(sendBtn); } } });
-  const sendBtn = h("button", { class: "go send", type: "button", title: M.send, "aria-label": M.send, onclick: e => send(e.currentTarget) },
-    icon(mode === "ask" ? "ask" : "send"), mode === "goal" || mode === "ask" ? h("span", { text: M.send }) : null);
-  async function send(btn) {
-    const text = ta.value.trim();
-    if (!text) { ta.focus(); toast(mode === "goal" ? "Write the goal first" : mode === "ask" ? "Write your question first" : "Write something first", mode === "goal" ? "One or two sentences is enough." : ""); return; }
-    const first = text.split("\n")[0].trim(), more = text.split("\n").slice(1).join("\n").trim() || null;
-    const clear = () => { ta.value = ""; };
-    if (mode === "ask") {
-      if (!askers.length) { toast("Nobody can answer yet", "Only AIs in Claude Code, Codex or opencode can answer here. Add one, or tick one above."); return; }
-      await act("council.ask", { question: text, seats: askers, follow_up: ui.followUp || null }, { button: btn, title: "Asked the table",
-        body: askers.length > 1 ? "Each AI answers on its own first, then they rank each other's answers. Watch it in the conversation." : "One AI answers. Add more AIs for a real council.",
-        after: res => { clear(); ui.followUp = null; ui.autoFollow = null; if (res && res.data && res.data.id) go("#/q/" + res.data.id); } });
-    } else if (mode === "goal") await act("plan.goal", { goal: text, review: level, mode: quick ? "quick" : "full", auto: !!ui.autoLock },
-      { button: btn, title: quick ? "On it" : "Planning started", body: quick ? "One AI is splitting it into tasks now" + (ui.autoLock ? "; work starts without asking you." : "; you approve the tasks before work starts.")
-        : "Each AI now writes its own plan. If one isn't running, start it and it catches up.", after: clear });
-    else if (mode === "note") await act("memory.add", { text }, { button: btn, title: "Sent to your AIs", body: "Saved as a note. Every AI reads it the next time it checks in.", after: clear });
-    else if (mode === "problem") await act("alert.raise", { level: 3, title: fit(first, 140), description: more }, { button: btn, title: "Your AIs have been told", body: "The AIs working nearby must acknowledge it before they take new work.", after: clear });
-    else await act("task.file", { title: fit(first, 140), summary: more }, { button: btn, title: "Task added", body: "It waits above the message box until you add it to the work.", after: clear });
-  }
-  const pick = (m, extra) => () => { ui.compose = m; Object.assign(ui, extra || {}); render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); };
-  const kinds = !live
-    ? [["full", "Plan together", "Each AI writes a plan, they compare notes and agree on one. Best for bigger changes.", mode === "goal" && !quick, pick("goal", { planMode: "full" })],
-      ["quick", "Just do it", "One AI splits your message into tasks and they start. Best when you know what you want.", mode === "goal" && quick, pick("goal", { planMode: "quick" })],
-      ["ask", "Ask the table", MODES.ask.tip, mode === "ask", pick("ask")]]
-    : [["note", MODES.note.label, MODES.note.hint, mode === "note", pick("note")], ["ask", "Ask the table", MODES.ask.tip, mode === "ask", pick("ask")],
-      ["problem", MODES.problem.label, MODES.problem.hint, mode === "problem", pick("problem")], ["task", MODES.task.label, MODES.task.hint, mode === "task", pick("task")]];
-  const modes = h("div", { class: "modes" },
-    h("div", { class: "seg", role: "group", "aria-label": live ? "What to send" : "How they work" },
-      kinds.map(([v, label, tip, on, fn]) => h("button", { type: "button", "aria-pressed": String(on), title: tip, class: v === "ask" ? "ask-seg" : null, onclick: fn },
-        v === "ask" ? icon("ask", "sm") : null, label))),
-    mode === "goal" ? h("button", { type: "button", class: "ghost small opts", "aria-expanded": String(!!ui.showOpts), onclick: () => { ui.showOpts = !ui.showOpts; render(); } },
-      `${CHECKING[level]} checking · ${ui.autoLock ? "starts by itself" : "you approve first"}`, icon("chevron", "sm")) : null);
-  const opts = mode === "goal" && ui.showOpts ? h("div", { class: "opts-row" },
-    h("span", { class: "checking" }, h("span", { class: "faint", text: "Checking" }),
-      h("div", { class: "seg", role: "group", "aria-label": "How carefully they check each other's work" },
-        ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v])))),
-    h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
-      h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" }))) : null;
-  const who = mode === "ask" ? h("div", { class: "askers" },
-    h("span", { class: "faint", text: (S.can_ask || []).length ? "Who answers:" : "Only AIs in Claude Code, Codex or opencode can answer here." }),
-    (S.can_ask || []).map(hd => h("button", { type: "button", class: "chip", "aria-pressed": String(!ui.askSkip[hd]), title: prettyModel((seatOf(hd) || {}).model),
-      onclick: () => { if (ui.askSkip[hd]) delete ui.askSkip[hd]; else ui.askSkip[hd] = true; render(); } }, avatar(hd, "xs", true), hd)),
-    ui.followUp ? h("span", { class: "chip on-follow" }, icon("ask", "sm"), "Following up on " + ui.followUp,
-      h("button", { type: "button", class: "chip-x", "aria-label": "Not a follow-up", onclick: () => { ui.followUp = null; render(); } }, icon("x", "sm"))) : null) : null;
-  if (followOnly) return h("footer", { class: "composer asking slim" }, h("div", { class: "composer-inner" }, h("div", { class: "box" }, ta, sendBtn)));
-  return h("footer", { class: "composer" + (mode === "ask" ? " asking" : "") }, h("div", { class: "composer-inner" }, modes, opts, who,
-    h("div", { class: "box" }, ta, sendBtn),
-    h("p", { class: "hint", text: M.hint + (mode === "goal" ? (ui.autoLock ? " Work starts without asking you: you won't read the test commands first." : " Nothing is built before you approve it.")
-      : " Enter sends; Shift+Enter starts a new line.") })));
-}
 
 /* ---------------------------------------------------------------- the plan, on the right */
 
@@ -1418,12 +981,16 @@ function taskGroups(limitDone) {
 /* ---------------------------------------------------------------- panels that open over the room */
 
 PAGES.room = () => null;
-PAGES.q = () => null;   // a question to the table: its own page in the middle (questionPage), not a drawer
+PAGES.q = () => null;
+PAGES.reviews = () => null;
+PAGES.activity = () => null;
+PAGES.inbox = st => ({ title: "What needs you", body: asksView() || note("Nothing needs you right now.") });
+PAGES.plandetail = st => PAGES.plan(st);   // the plan's drafts, comments and history, from Plan & tasks
 
 function drawer(page, fresh) {
   const view = PAGES[page](S) || {};
   const id = "drawer-title";
-  const panel = h("aside", { class: "drawer" + (fresh ? "" : " still") + (view.wide ? " wide" : ""), role: "dialog", "aria-modal": "true", "aria-labelledby": id },
+  const panel = h("aside", { class: "rt-drawer" + (fresh ? "" : " still") + (view.wide ? " wide" : ""), role: "dialog", "aria-modal": "true", "aria-labelledby": id },
     h("header", { class: "drawer-head" },
       view.back ? h("button", { class: "ghost icon-only", type: "button", "aria-label": "Back", title: "Back", onclick: () => go(view.back) }, icon("back")) : null,
       h("h1", { id, text: view.title || "" }),
@@ -1487,7 +1054,7 @@ function approveBlock(p, early) {
   } }, icon("check", "sm"), early ? "Approve without waiting" : "Approve the plan");
   const body = [
     early ? h("p", { class: "muted", text: "Not every AI has agreed yet. You can approve anyway; their objections are listed above." })
-      : h("p", { text: `Your AIs agreed on ${plural(p.tasks.length, "task")}. When you approve, they start building, and after each task Roundtable runs its test command on your computer to prove the work is right.` }),
+      : h("p", { text: `Your AIs agreed on ${plural(p.tasks.length, "task")}. When you approve, they start building, and after each task Sabha runs its test command on your computer to prove the work is right.` }),
     h("div", { class: "stack tight" }, h("strong", { text: "These commands will run on your computer" }),
       h("div", { class: "output", text: p.commands.length ? p.commands.join("\n") : "(no commands)" })),
     h("label", { class: "check", for: "lock-ack" }, ack, h("span", null, "I've read these commands and they are safe to run here")),
@@ -1581,13 +1148,12 @@ PAGES.council = st => {
   if (!id && !cache.councilList) getJSON("/api/councils").then(r => { cache.councilList = r.councils || []; render(); }).catch(() => {});
   const all = !id ? (cache.councilList && cache.councilList.length >= (st.councils || []).length ? cache.councilList : st.councils || []) : [];
   if (!id) return { title: "Questions to the table", body: [
-    h("p", { class: "muted", text: "Ask from the message box: every AI answers on its own, they rank each other's answers without names, and the one the others ranked best writes the final answer. Second opinions on failing tasks show up here too." }),
-    h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: () => { ui.compose = "ask"; close(); render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); } }, icon("ask", "sm"), "Ask a new question")),
+    all.length ? h("h2", { class: "list-title", text: `Questions so far (${all.length})` }) : null,
     all.length ? h("ul", { class: "tasklist" }, all.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/q/" + c.id) },
       h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work"), "aria-hidden": "true" }),
       h("span", { class: "t" }, h("strong", { text: c.kind === "rescue" ? `Second opinion on ${c.task}` : fit(c.question, 120) }),
         h("span", { text: `${c.id} · ${c.at} · ${c.members.map(m => m.seat).join(", ")}` }))))))
-      : note("No questions yet. Choose “Ask the table” in the message box.")] };
+      : note("No questions yet. Ask one above: second opinions on failing tasks show up here too.")] };
   const d = cache.council[id];
   if (!d) { loadCouncil(id).then(render); return { title: id, back: "#/council", body: h("p", { class: "muted", text: "Loading…" }) }; }
   if (d.ok === false) return { title: id, back: "#/council", body: note(plainText(d.message) || "There is no such question.") };
@@ -1601,7 +1167,7 @@ PAGES.council = st => {
     h("span", { class: "tick", "aria-hidden": "true" }, i < at || d.stage === "done" ? icon("check", "sm") : null), h("div", null, h("strong", { text: label })))));
   const labelSeat = Object.fromEntries(answers.map(a => [a.label, a.seat]));
   const body = [
-    h("div", { class: "box" }, h("p", { class: "faint", text: rescue ? `Asked by Roundtable after ${d.task} failed its tests twice` : `You asked ${d.members.join(", ")} at ${d.at}` }),
+    h("div", { class: "box" }, h("p", { class: "faint", text: rescue ? `Asked by Sabha after ${d.task} failed its tests twice` : `You asked ${d.members.join(", ")} at ${d.at}` }),
       rescue ? h("p", { class: "goal", text: d.question }) : longText(d.question, "cqd-" + id, "goal", 600)),
     ["done", "failed", "cancelled"].includes(d.stage) ? null : sec(null, steps),
   ];
@@ -1800,14 +1366,14 @@ function startLabel(x) {
   return { terminal: "Start in a terminal", vscode: "Open in VS Code", editor: "Open in " + x.app_label.replace(" editor", "") }[x.start.kind] || "Show me how";
 }
 function startHint(x) {
-  return { terminal: "Roundtable opens a terminal window with it, already connected.", vscode: "Roundtable opens its folder in VS Code. Then you send it one message.",
-    editor: "Roundtable opens its folder in the editor. Then you send it one message." }[x.start.kind] || "You open its app yourself and send it one message.";
+  return { terminal: "Sabha opens a terminal window with it, already connected.", vscode: "Sabha opens its folder in VS Code. Then you send it one message.",
+    editor: "Sabha opens its folder in the editor. Then you send it one message." }[x.start.kind] || "You open its app yourself and send it one message.";
 }
 
 async function startSeat(x, btn) {
   if (!["terminal", "vscode", "editor"].includes(x.start.kind)) { ui.started[x.handle] = { steps: x.start.steps, join: x.start.join }; render(); return; }
   const res = await special("start", { handle: x.handle }, { button: btn, silent: true });
-  if (res.ok) { ui.started[x.handle] = { text: res.text, join: res.join, steps: res.steps, kind: x.start.kind }; toast(capital(plainText(res.text)), x.start.kind === "terminal" ? "Allow the Roundtable tools when the app asks." : "Then send the message shown here."); }
+  if (res.ok) { ui.started[x.handle] = { text: res.text, join: res.join, steps: res.steps, kind: x.start.kind }; toast(capital(plainText(res.text)), x.start.kind === "terminal" ? "Allow the Sabha tools when the app asks." : "Then send the message shown here."); }
   else { ui.started[x.handle] = { error: res.message, hint: res.hint, command: res.command, folder: res.folder, join: x.start.join, steps: x.start.steps }; toast(capital(plainText(res.message)) || "Could not start it", "Run the command shown under its name instead.", { error: true }); }
   render();
 }
@@ -1816,7 +1382,7 @@ function startedBox(x, info) {
   return h("div", { class: "stack tight" },
     info.error ? h("p", null, h("strong", { text: plainText(info.error) })) : null,
     info.command ? [h("p", { class: "faint", text: "Run this in a terminal instead:" }), copyBox(`cd ${info.folder || ""} && ${info.command}`.replace(/^cd  && /, ""))] : null,
-    info.kind === "terminal" && !info.error ? h("p", { class: "faint", text: "A terminal window opened. Allow the Roundtable tools when it asks; it joins by itself." }) : null,
+    info.kind === "terminal" && !info.error ? h("p", { class: "faint", text: "A terminal window opened. Allow the Sabha tools when it asks; it joins by itself." }) : null,
     info.steps && info.steps.length && info.kind !== "terminal" ? h("ol", { class: "stack tight" }, info.steps.map(t => h("li", { text: t }))) : null,
     info.join && info.kind !== "terminal" ? [h("p", { class: "faint", text: "Then send this message in its chat:" }), copyBox(info.join)] : null);
 }
@@ -1848,7 +1414,7 @@ function usageBlock(x, warnAt) {
     reset(snap.limit_7d) || meter("Week", snap.limit_7d && snap.limit_7d.pct, snap.limit_7d && resets(snap.limit_7d.resets_at), warnAt)].filter(Boolean) : [];
   return h("div", { class: "stack tight" },
     meters.length ? h("div", null, meters) : h("p", { class: "muted", text: ["claude-code", "codex-cli", "codex-vscode", "codex-app"].includes(x.app)
-      ? "No numbers yet. They appear after its first reply" + (x.app === "claude-code" ? " when it is started from Roundtable." : ".")
+      ? "No numbers yet. They appear after its first reply" + (x.app === "claude-code" ? " when it is started from Sabha." : ".")
       : "This app doesn't share how much it has used." }),
     snap.updated_at ? h("p", { class: ago(snap.updated_at) > 1800 ? "box warn" : "faint", text: `Numbers from ${agoText(snap.updated_at)}` +
       (ago(snap.updated_at) > 1800 ? ". They only update while it works, so they may be out of date." : ".") }) : null,
@@ -1857,7 +1423,7 @@ function usageBlock(x, warnAt) {
       snap.limit_5h && !snap.limit_5h.reset ? [h("dt", { text: "5-hour limit" }), h("dd", { text: resets(snap.limit_5h.resets_at) || "-" })] : null,
       snap.limit_7d && !snap.limit_7d.reset ? [h("dt", { text: "Weekly limit" }), h("dd", { text: resets(snap.limit_7d.resets_at) || "-" })] : null,
       x.runner && x.runner.tokens ? [h("dt", { text: "Background runs" }), h("dd", { text: `about ${num(x.runner.tokens)} tokens in ${plural(x.runner.runs || 0, "run")}` })] : null,
-      h("dt", { text: "Roundtable" }), h("dd", { text: `${num(ex.calls)} messages, about ${num(ex.tokens)} tokens (${num(ex.tokens_today)} today)` })));
+      h("dt", { text: "Sabha" }), h("dd", { text: `${num(ex.calls)} messages, about ${num(ex.tokens)} tokens (${num(ex.tokens_today)} today)` })));
 }
 
 const EFFORT_LABEL = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max", ultra: "Ultra" };
@@ -1904,8 +1470,8 @@ function runnerSection(x) {
   return h("section", { class: "section runner" + (on ? " on" : "") },
     h("div", { class: "spread" }, h("h2", { text: "Run it in the background" }), h("span", { class: "pill " + (on ? (r.state === "stuck" ? "you" : r.state === "working" ? "work" : "ok") : ""), text: state })),
     h("p", { class: "muted", text: on
-      ? "Roundtable starts " + x.handle + " by itself whenever it has work, with your own login, and puts it back to sleep when it is done. You don't need a terminal open."
-      : "Let Roundtable start " + x.handle + " by itself whenever it has work, with your own " + appWord(x.app) + (x.app === "opencode" ? " setup (free models need no login)" : " login") + ". Nothing gets stuck waiting for you to nudge it." }),
+      ? "Sabha starts " + x.handle + " by itself whenever it has work, with your own login, and puts it back to sleep when it is done. You don't need a terminal open."
+      : "Let Sabha start " + x.handle + " by itself whenever it has work, with your own " + appWord(x.app) + (x.app === "opencode" ? " setup (free models need no login)" : " login") + ". Nothing gets stuck waiting for you to nudge it." }),
     on && r.message ? h("p", { class: r.state === "stuck" || r.state === "limited" ? "box warn" : "faint", text: capital(plainText(r.message)) + (r.runs ? ` · ${plural(r.runs, "run")} so far` : "") }) : null,
     !on && r.error ? h("p", { class: "box warn", text: "Last time: " + plainText(r.error) }) : null,
     h("div", { class: "row" }, on
@@ -1915,7 +1481,7 @@ function runnerSection(x) {
       h("a", { href: "#/settings", text: "Change this in Settings" }), "."));
 }
 
-const STEP_LABEL = { think: "Thinking", say: "Said", run: "Ran", edit: "Edited", read: "Read", tool: "Roundtable", done: "Finished", error: "Problem", start: "Started" };
+const STEP_LABEL = { think: "Thinking", say: "Said", run: "Ran", edit: "Edited", read: "Read", tool: "Sabha", done: "Finished", error: "Problem", start: "Started" };
 
 function liveList(x, data) {
   if (!data) return h("p", { class: "muted", text: "Loading…" });
@@ -2113,7 +1679,7 @@ PAGES.team = st => {
     sec(null, h("ul", { class: "menu plain" }, links.map(([r, ic, label, badge]) => h("li", null, h("button", { type: "button", onclick: () => go("#/" + r) },
       icon(ic, "sm"), h("span", { class: "grow", text: label }), badge ? h("span", { class: "count", text: badge }) : null, icon("chevron", "sm")))))),
     h("details", { class: "section", "data-k": "connect" }, h("summary", null, icon("chevron", "sm"), "Connect apps you open yourself"), connectPanel(st)),
-    h("div", { class: "row spread" }, themeButton(true), h("span", { class: "faint", text: "Roundtable " + st.project.version }))] };
+    h("div", { class: "row spread" }, themeButton(true), h("span", { class: "faint", text: "Sabha " + st.project.version }))] };
 };
 
 function connectPanel(st) {
@@ -2122,9 +1688,9 @@ function connectPanel(st) {
     ["claude-code", "Claude Code (project settings)", "Only needed if you open Claude Code yourself instead of using Start. Writes .mcp.json in the project folder."],
     ["claude-app", "Claude desktop app", "Lets a Claude desktop chat join. Restart the app afterwards."],
     ["codex", "Codex: terminal, VS Code and the ChatGPT app", "One entry in ~/.codex/config.toml serves all three. Restart them afterwards."],
-    ["copilot", "GitHub Copilot CLI", "Adds Roundtable to ~/.copilot/mcp-config.json."],
+    ["copilot", "GitHub Copilot CLI", "Adds Sabha to ~/.copilot/mcp-config.json."],
   ];
-  return h("div", { class: "stack" }, h("p", { class: "muted", text: "AIs you start from here are connected automatically. These are for apps you open yourself. Roundtable adds its entry to each settings file and keeps a backup." }),
+  return h("div", { class: "stack" }, h("p", { class: "muted", text: "AIs you start from here are connected automatically. These are for apps you open yourself. Sabha adds its entry to each settings file and keeps a backup." }),
     h("ul", { class: "list" }, items.map(([key, label, help]) => h("li", { class: "stack tight" },
       h("div", { class: "row" }, h("strong", { text: label }), h("span", { class: "pill " + (c[key] ? "ok" : ""), text: c[key] ? "connected" : "not connected" })),
       h("p", { class: "faint", text: help }),
@@ -2214,8 +1780,8 @@ PAGES.usage = st => {
     st.seats.length ? st.seats.map(x => sec(null, h("div", { class: "row" }, avatar(x.handle, "sm", true), h("strong", { text: x.handle }), h("span", { class: "faint", text: `${prettyModel(x.model)} · ${x.app_label}` })), usageBlock(x, warn)))
       : note("Add AIs to see their usage."),
     h("details", { class: "section", "data-k": "usage-src" }, h("summary", null, icon("chevron", "sm"), "Where these numbers come from"), h("div", { class: "stack tight muted" },
-      h("p", { text: "Claude Code started from Roundtable reports how full its chat is, its tokens and the 5-hour and weekly limits. Codex (terminal, VS Code and ChatGPT app) writes them to its session logs, which Roundtable reads. Other apps don't share this, so only Roundtable's own messages are shown for them." }),
-      h("p", { text: `Roundtable's tool descriptions cost about ${num(st.overhead_tokens)} tokens once per chat. Message tokens are estimated from characters (about 4 per token).` })))] };
+      h("p", { text: "Claude Code started from Sabha reports how full its chat is, its tokens and the 5-hour and weekly limits. Codex (terminal, VS Code and ChatGPT app) writes them to its session logs, which Sabha reads. Other apps don't share this, so only Sabha's own messages are shown for them." }),
+      h("p", { text: `Sabha's tool descriptions cost about ${num(st.overhead_tokens)} tokens once per chat. Message tokens are estimated from characters (about 4 per token).` })))] };
 };
 
 /* ---------------------------------------------------------------- notes */
@@ -2279,7 +1845,7 @@ const SECTION_LABEL = { project: "Project", review: "Checking each other's work"
   git: "Git", watch: "Notifications", usage: "Usage", dashboard: "Dashboard", history: "History", runner: "Background runs", council: "Asking the table" };
 const SETTING_TEXT = {
   "project.name": ["Project name", "Shown here and to the AIs."],
-  "project.main_branch": ["Branch finished work goes into", "Detected when Roundtable was set up."],
+  "project.main_branch": ["Branch finished work goes into", "Detected when Sabha was set up."],
   "review.level": ["How carefully the AIs check each other", "Light: tests only. Standard: an AI from another company skims every change. Thorough: two AIs read every line."],
   "review.always_high": ["Always check these files thoroughly", "Comma-separated patterns, like auth/**."],
   "review.max_diff_lines": ["Large change (lines)", "With Standard checking, bigger changes get a summary check and also come to you."],
@@ -2352,14 +1918,14 @@ PAGES.help = st => ({ title: "Help", body: [
     "Each AI runs in its own app (Claude Code, Codex, VS Code, a desktop app) with your own subscription. No API keys.",
     "You give a goal. Each AI writes a plan without seeing the others', then comments on the others' plans without knowing who wrote which. One AI combines the best parts and the others agree.",
     "You read the plan and the test commands it will run, and approve. Nothing is built before you do.",
-    "While an AI works on a task, that task's files are its alone. When it says it's done, Roundtable runs the tests itself, an AI from another company checks the changes, and the work is merged into your project.",
-    "Claude Code, Codex and opencode can run in the background: Roundtable wakes them whenever there is work. Other apps act only while you talk to them: when a chat goes quiet, type “check roundtable” in it.",
+    "While an AI works on a task, that task's files are its alone. When it says it's done, Sabha runs the tests itself, an AI from another company checks the changes, and the work is merged into your project.",
+    "Claude Code, Codex and opencode can run in the background: Sabha wakes them whenever there is work. Other apps act only while you talk to them: when a chat goes quiet, type “check roundtable” in it.",
   ].map(t => h("li", { text: t })))),
   sec("Ask the table", h("p", { text: "Choose “Ask the table” in the message box to ask anything: about your code, a design choice, a bug. Every AI answers on its own; then each one reads all the answers as Answer A, B, C, without names, says what is right and wrong in each, and ranks them. The AI whose answer the others ranked best writes the final answer from all of them. They can read your project but can't change it." }),
-    h("p", { class: "muted", text: "When a task fails its tests twice in a row, Roundtable does something similar by itself: an AI from another company reads the failure in the builder's copy of the project and sends the builder a diagnosis, which it must answer. You can turn that off in Settings." })),
+    h("p", { class: "muted", text: "When a task fails its tests twice in a row, Sabha does something similar by itself: an AI from another company reads the failure in the builder's copy of the project and sends the builder a diagnosis, which it must answer. You can turn that off in Settings." })),
   sec("Words you may see in the AIs' chats", h("dl", { class: "kv" }, [
     ["Seat", "One AI in one app, with a short name like opus."], ["Working copy", "The AI's own folder with a copy of your project, on its own git branch."],
-    ["Lease", "A task's files, locked to the AI working on it."], ["Proof", "The test command that shows a task works. Roundtable runs it."],
+    ["Lease", "A task's files, locked to the AI working on it."], ["Proof", "The test command that shows a task works. Sabha runs it."],
     ["Review depth", "How carefully they check each other: low is Light, mid Standard, high Thorough."], ["Lock", "Approving the plan."],
     ["Backlog", "Work an AI found, waiting for your OK."], ["Epic", "A group of tasks."], ["Memory", "The notes every AI reads."],
     ["Alert levels", "1 note, 2 heads-up, 3 must be acknowledged, 4 holds the files, 5 stops everyone."],
@@ -2373,17 +1939,17 @@ PAGES.help = st => ({ title: "Help", body: [
   ].map(([a, b]) => [h("dt", { text: a }), h("dd", { class: "mono", text: b })]))),
   sec("Where things are", h("dl", { class: "kv" },
     h("dt", { text: "Project" }), h("dd", { class: "mono", text: st.project.root }),
-    h("dt", { text: "Roundtable's data" }), h("dd", { class: "mono", text: st.project.home }),
+    h("dt", { text: "Sabha's data" }), h("dd", { class: "mono", text: st.project.home }),
     h("dt", { text: "AIs' copies" }), h("dd", { class: "mono pre", text: st.seats.filter(x => x.worktree).map(x => x.worktree).join("\n") || "none yet" }))),
   sec("Credits", h("p", { class: "muted", text: "Planning together and asking the table borrow from Andrej Karpathy's LLM Council (independent answers, anonymous peer ranking and a chairman). Task tracking learns from Steve Yegge's Beads and Gas Town, and messaging from MCP Agent Mail. Text is set in Geist by Vercel (SIL Open Font License)." })),
-  h("p", { class: "faint", text: "Roundtable v" + st.project.version })] });
+  h("p", { class: "faint", text: "Sabha v" + st.project.version })] });
 
 /* ---------------------------------------------------------------- another project */
 
 PAGES.switch = st => {
   const input = h("input", { type: "text", id: "switch-folder", "data-k": "switch-folder", placeholder: "/home/you/projects/app", spellcheck: "false" });
   return { title: "Open another project", body: [
-    h("p", { class: "muted", text: "Roundtable keeps one table per project folder. Open another folder here; if it has no table yet, you can set one up there next." }),
+    h("p", { class: "muted", text: "Sabha keeps one table per project folder. Open another folder here; if it has no table yet, you can set one up there next." }),
     h("dl", { class: "kv" }, h("dt", { text: "Now open" }), h("dd", { class: "mono", text: st.project.root })),
     h("div", { class: "field" }, h("label", { for: "switch-folder", text: "Folder" }),
       h("div", { class: "row" }, h("div", { class: "grow" }, input),
@@ -2406,7 +1972,7 @@ function welcomeStep() { return ui.wstep || (!S.seats.length ? 1 : S.plan ? 3 : 
 
 function welcomeArt(steps, at, title, lead) {
   return h("aside", { class: "welcome-art" },
-    h("div", { class: "brand" }, h("img", { src: "/icon.svg", alt: "", width: "28", height: "28" }), "Roundtable"),
+    h("div", { class: "brand" }, h("img", { src: "/icon.svg", alt: "", width: "28", height: "28" }), "Sabha"),
     h("h1", { text: title }), h("p", { text: lead }),
     steps ? h("ol", { class: "wsteps", "aria-label": "Steps" }, steps.map((label, i) => h("li", { class: i + 1 < at ? "done" : i + 1 === at ? "now" : "", "aria-current": i + 1 === at ? "step" : null },
       h("span", { class: "n", "aria-hidden": "true" }, i + 1 < at ? icon("check", "sm") : String(i + 1)), h("span", { class: "label", text: label })))) : null,
@@ -2428,7 +1994,7 @@ function welcomeScreen(st) {
       h("button", { class: "ghost", type: "button", onclick: toRoom }, st.seats.length ? "Go to the room" : "Skip for now and look around"))];
   else if (step === 2) main = [
     h("h2", { text: "Start each one" }),
-    h("p", { class: "lead", text: "Each AI works in its own copy of your project, so your folder is never edited directly. Easiest: let Roundtable run them in the background; it wakes them whenever there is work. Or open each one in a terminal and watch it there." }),
+    h("p", { class: "lead", text: "Each AI works in its own copy of your project, so your folder is never edited directly. Easiest: let Sabha run them in the background; it wakes them whenever there is work. Or open each one in a terminal and watch it there." }),
     h("div", null, st.seats.map(x => {
       const info = ui.started[x.handle];
       return h("div", { class: "joinrow" }, avatar(x.handle, "lg"),
@@ -2461,26 +2027,26 @@ function welcomeScreen(st) {
     h("main", { class: "welcome-main" }, h("div", { class: "stack" }, main)));
 }
 
-/* ---------------------------------------------------------------- a folder without Roundtable yet */
+/* ---------------------------------------------------------------- a folder without Sabha yet */
 
 function setupScreen(st) {
   const f = st.setup;
   const notes = [];
   let can = f.exists;
   if (!f.exists) notes.push(note("This folder does not exist.", "warn"));
-  else if (f.worktree_of) { can = false; notes.push(note(`This is one AI's own copy of a project. Set up Roundtable in the main folder instead: ${f.worktree_of}`, "warn")); }
-  else if (f.inside) { can = false; notes.push(note(`This folder is inside a git repository. Set up Roundtable at its top folder: ${f.toplevel}`, "warn")); }
-  else if (!f.git) notes.push(note("This folder has no git. Roundtable still works, but every AI shares this one folder. For a separate copy per AI, checked changes and automatic merges, run git init here and make a first commit, then reload.", "warn"));
+  else if (f.worktree_of) { can = false; notes.push(note(`This is one AI's own copy of a project. Set up Sabha in the main folder instead: ${f.worktree_of}`, "warn")); }
+  else if (f.inside) { can = false; notes.push(note(`This folder is inside a git repository. Set up Sabha at its top folder: ${f.toplevel}`, "warn")); }
+  else if (!f.git) notes.push(note("This folder has no git. Sabha still works, but every AI shares this one folder. For a separate copy per AI, checked changes and automatic merges, run git init here and make a first commit, then reload.", "warn"));
   else if (!f.has_commits) notes.push(note("This git repository has no commits yet. Make a first commit before adding AIs that write code: their copies start from it.", "warn"));
   else notes.push(note(`Git repository on branch ${f.branch || "(detached)"}. Each AI that writes code gets its own copy next to this folder, and finished work is merged into ${f.branch || "your branch"}.`, "ok"));
   const folderIn = h("input", { type: "text", id: "open-folder", "data-k": "open-folder", value: f.folder, spellcheck: "false", autocomplete: "off" });
-  const art = welcomeArt(null, 0, "Bring your AIs to one table", "Several AI models plan, build and check this project together, each in its own app. Roundtable only adds a hidden .roundtable folder; it never changes your files.");
+  const art = welcomeArt(null, 0, "Bring your AIs to one table", "Several AI models plan, build and check this project together, each in its own app. Sabha only adds a hidden .roundtable folder; it never changes your files.");
   const recentList = st.recent && st.recent.length ? h("section", { class: "section" }, h("h2", { text: "Recent projects" }),
     h("ul", { class: "tasklist" }, st.recent.map(r => h("li", null, h("button", { type: "button", onclick: e => special("open", { folder: r.root }, { button: e.currentTarget, title: "Opened " + r.name }) },
       icon("folder", "sm"), h("span", { class: "t" }, h("strong", { text: r.name }), h("span", { text: r.root }))))))) : null;
   if (f.is_home) return h("div", { class: "welcome" }, art, h("main", { class: "welcome-main" }, h("div", { class: "stack" },
     h("h2", { text: st.recent && st.recent.length ? "Open a project" : "Choose your project" }),
-    h("p", { class: "lead", text: "Pick the folder of the project your AIs should work on: usually a git repository with at least one commit. If it has no Roundtable yet, you can set one up there next." }),
+    h("p", { class: "lead", text: "Pick the folder of the project your AIs should work on: usually a git repository with at least one commit. If it has no Sabha yet, you can set one up there next." }),
     h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: e => browseFolder(folderIn, e.currentTarget, folder => special("open", { folder }, { title: "Opened" })) },
       icon("folder", "sm"), "Choose a folder…")),
     h("details", { "data-k": "setup-type" }, h("summary", null, icon("chevron", "sm"), "Type the folder's path instead"),
@@ -2488,10 +2054,10 @@ function setupScreen(st) {
         h("button", { type: "button", onclick: e => special("open", { folder: folderIn.value.trim() }, { button: e.currentTarget, title: "Opened" }) }, "Open"))),
     recentList)));
   return h("div", { class: "welcome" }, art, h("main", { class: "welcome-main" }, h("div", { class: "stack" },
-    h("h2", { text: "Set up Roundtable here" }),
+    h("h2", { text: "Set up Sabha here" }),
     h("dl", { class: "kv" }, h("dt", { text: "Folder" }), h("dd", { class: "mono", text: f.folder })),
     notes,
-    h("div", { class: "row" }, h("button", { class: "go", type: "button", disabled: !can, onclick: e => special("init", { folder: f.folder }, { button: e.currentTarget, title: "Roundtable is set up" }) }, "Set up Roundtable in this folder")),
+    h("div", { class: "row" }, h("button", { class: "go", type: "button", disabled: !can, onclick: e => special("init", { folder: f.folder }, { button: e.currentTarget, title: "Sabha is set up" }) }, "Set up Sabha in this folder")),
     h("details", { "data-k": "setup-other" }, h("summary", null, icon("chevron", "sm"), "Use another folder"),
       h("div", { class: "field" }, h("label", { for: "open-folder", text: "Folder" }),
         h("div", { class: "row" }, h("div", { class: "grow" }, folderIn),
@@ -2506,8 +2072,8 @@ applyTheme();
 route = parseRoute();
 window.addEventListener("hashchange", () => {
   route = parseRoute();
-  if (route.page === "q") ui.underQ = (route.sub || "").toUpperCase();     // drawers open over the question, and close back to it
-  else if (route.page === "room") ui.underQ = "";
+  if (route.page === "q") { ui.underQ = (route.sub || "").toUpperCase(); ui.underView = "council"; }   // details open over the view you were on, and close back to it
+  else if (SB_VIEWS.includes(route.page)) { ui.underQ = ""; ui.underView = route.page; }
   if (taskRoute()) loadTask(taskRoute()).then(render);
   if (route.page === "ai" && route.sub) loadActivity(route.sub).then(render);
   if (route.page === "council" && !route.sub) cache.councilList = null;
@@ -2524,8 +2090,8 @@ document.addEventListener("keydown", e => {
     if (area) { e.preventDefault(); const r = document.createRange(); r.selectNodeContents(area); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
   }
   if (mod && !e.shiftKey && !e.altKey && S && S.mode === "project" && !inWelcome()) {
-    if (e.key === "k") { e.preventDefault(); go("#/history"); }                // search, as in most apps
-    else if (e.key === "b") { e.preventDefault(); toggleSide(); }             // the sidebar, as in VS Code
+    if (e.key === "k") { e.preventDefault(); sbPalette(); }                    // find anything, as in most apps
+    else if (e.key === ",") { e.preventDefault(); go("#/settings"); }
   }
 });
 refresh(true);

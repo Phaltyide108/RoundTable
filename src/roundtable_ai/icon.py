@@ -1,41 +1,59 @@
-"""The Roundtable icon as PNG, ICO and ICNS, drawn in plain Python (no image libraries).
+"""The Sabha icon as PNG, ICO and ICNS, drawn in plain Python (no image libraries).
 
-The same picture as ui/icon.svg: a table seen from above with four seats around it.
-Used for the app-menu entry on Linux, the Start menu shortcut on Windows and the
-.app bundle on macOS.
+The same picture as ui/icon.svg: a lotus of eight petals (people around a table, each with
+an orange flame at its tip) around a ring, on a rounded paper-coloured square. Used for the
+app-menu entry on Linux, the Start menu shortcut on Windows and the .app bundle on macOS.
 """
 
 from __future__ import annotations
 
+import math
 import struct
 import zlib
 
-BG = (0x3E, 0x6A, 0x5B)
-TABLE = (0x55, 0x7F, 0x70)
-RIM = (0xE9, 0xDF, 0xC9)
-SEAT = (0xF5, 0xF3, 0xEE)
-SEATS = ((16, 5.6), (16, 26.4), (4.8, 16), (27.2, 16))
+PAPER = (0xF8, 0xF6, 0xF0)
+INK = (0x1D, 0x21, 0x52)
+FLAME = (0xEA, 0x82, 0x1E)
+
+
+def _drop(u: float, v: float, base: float, radius: float, apex: float) -> bool:
+    """Inside a drop pointing outwards: a round end at `base` and a point at `apex` (distances from the centre)."""
+    if (u - base) ** 2 + v * v <= radius * radius:
+        return True
+    if base <= u <= apex:
+        return abs(v) <= radius * ((apex - u) / (apex - base)) ** 0.85
+    return False
+
+
+def _mark(x: float, y: float) -> tuple[int, int, int] | None:
+    """Colour of the lotus (100 x 100 units, centred on 50, 50) at (x, y), or None for background."""
+    dx, dy = x - 50, 50 - y
+    r = math.hypot(dx, dy)
+    if r > 49:
+        return None
+    angle = math.degrees(math.atan2(dx, dy)) % 45     # 0 on a petal's axis
+    off = angle if angle <= 22.5 else angle - 45
+    u, v = r * math.cos(math.radians(off)), r * math.sin(math.radians(off))
+    if _drop(u, v, 40.4, 4.4, 47.6):
+        return FLAME
+    if abs(r - 12.3) <= 1.55:
+        return INK
+    if r < 16.4 or _drop(u, v, 40.4, 6.2, 50) or (u - 23) ** 2 + v * v <= 36:
+        return None
+    if r < 31.5 and r * math.sin(math.radians(22.5 - abs(off))) < 1.1:
+        return None                                    # the gap between two petals
+    return INK if _drop(u, v, 23.6, 12.3, 41.4) else None
 
 
 def _color_at(x: float, y: float) -> tuple[int, int, int] | None:
     """Colour of the 32x32 picture at (x, y), or None outside it."""
-    r = 8.0
+    r = 7.0
     cx = min(max(x, r), 32 - r)
     cy = min(max(y, r), 32 - r)
     if (x - cx) ** 2 + (y - cy) ** 2 > r * r or not (0 <= x <= 32 and 0 <= y <= 32):
         return None
-    for sx, sy in SEATS:
-        if (x - sx) ** 2 + (y - sy) ** 2 <= 2.1 ** 2:
-            return SEAT
-    e = ((x - 16) / 8) ** 2 + ((y - 16) / 5.5) ** 2
-    if e <= 1:
-        # the rim: about 0.8 units on each side of the ellipse outline
-        inner = ((x - 16) / 7.2) ** 2 + ((y - 16) / 4.7) ** 2
-        return TABLE if inner <= 1 else RIM
-    outer = ((x - 16) / 8.8) ** 2 + ((y - 16) / 6.3) ** 2
-    if outer <= 1:
-        return RIM
-    return BG
+    m = _mark(50 + (x - 16) * 100 / 26, 50 + (y - 16) * 100 / 26)     # the lotus fills 26 of the 32 units
+    return m or PAPER
 
 
 def rgba(size: int) -> bytes:

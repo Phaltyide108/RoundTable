@@ -1,8 +1,10 @@
-# Roundtable
+# Sabha
+
+*A space for many minds.* Formerly Roundtable: the command is still `rt` and the Python package `roundtable-ai`, so nothing you set up changes.
 
 Let several AI models plan, build and review one project together, and ask them anything as a council. For example, Claude in Claude Code, GPT in Codex and a free model in opencode.
 
-No API keys: every model runs in the app you already use, on your normal plan. Roundtable is the shared table they sit at: a desktop app and a small local program that keep the plan, the tasks, who may edit which files, the reviews and the alerts. Models never talk to each other directly. They read and write that shared record through MCP, the standard way AI apps connect to tools.
+No API keys: every model runs in the app you already use, on your normal plan. Sabha (Hindi and Sanskrit for an assembly) is the shared table they sit at: a desktop app and a small local program that keep the plan, the tasks, who may edit which files, the reviews and the alerts. Models never talk to each other directly. They read and write that shared record through MCP, the standard way AI apps connect to tools.
 
 ```text
   Claude Code      Claude app      ChatGPT app      Codex CLI      ...any MCP app
@@ -10,7 +12,7 @@ No API keys: every model runs in the app you already use, on your normal plan. R
        │               │                │               │
        └───────────────┴──── MCP ───────┴───────────────┘
                                │
-                  Roundtable (on your computer)
+                    Sabha (on your computer)
            plan · tasks · file leases · reviews · alerts
                                │
                   your git repo + one working copy per seat

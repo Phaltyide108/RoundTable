@@ -24,7 +24,8 @@ from .errors import CONFLICT, FORBIDDEN, INVALID, NOT_FOUND, RTError
 
 UI_DIR = Path(__file__).parent / "ui"
 STATIC = {"/app.css": ("app.css", "text/css; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-          "/icon.svg": ("icon.svg", "image/svg+xml"), "/fonts/geist.woff2": ("fonts/geist.woff2", "font/woff2")}
+          "/icon.svg": ("icon.svg", "image/svg+xml"), "/fonts/geist.woff2": ("fonts/geist.woff2", "font/woff2"),
+          "/sabha.css": ("sabha.css", "text/css; charset=utf-8"), "/sabha.js": ("sabha.js", "text/javascript; charset=utf-8")}
 DEFAULT_PORT = 8765
 
 

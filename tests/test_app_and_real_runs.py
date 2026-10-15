@@ -148,9 +148,9 @@ def test_app_bundle_on_macos(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(window.Path, "home", classmethod(lambda cls: tmp_path))
     window.install()
-    app = tmp_path / "Applications" / "Roundtable.app" / "Contents"
+    app = tmp_path / "Applications" / "Sabha.app" / "Contents"
     assert "CFBundleExecutable" in (app / "Info.plist").read_text()
-    assert "roundtable_ai app --foreground" in (app / "MacOS" / "Roundtable").read_text()
+    assert "roundtable_ai app --foreground" in (app / "MacOS" / "Sabha").read_text()
     assert (app / "Resources" / "roundtable.icns").read_bytes()[:4] == b"icns"
     window.install(remove=True)
     assert not app.exists()
