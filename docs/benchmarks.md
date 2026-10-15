@@ -28,6 +28,8 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-15 | sql | Claude Haiku 5.5 (low thinking) alone | 111/111 | 4.7 | | Even the smallest Claude model gets this specification fully right alone |
 | 2026-10-15 | sql | Team: Haiku + Luna (low) | stopped | | | All five tasks started at once and each proof ran the whole suite, so none could pass before the others merged; stopped and fixed (each task now tests only its part and depends on what it imports) |
 | 2026-10-15 | pond | GPT-6 Luna (low thinking) alone | 14/25 | 1.4 | 54,816 | Looks good at a glance, but its water is a square sheet sticking out of the round pond, and its simulation turns to NaN (fish, waves, food all break) |
+| 2026-10-15 | pond | Claude Haiku 5.5 (low thinking) alone | 25/25 | 5.0 | | |
+| 2026-10-15 | pond | Team: Haiku + Luna (low) | 25/25 | 6.4 | 614,364 | Six tasks split across both; the team's result has none of Luna's failures. A person looking at it: works, with a jagged edge where the water meets the wall |
 
 Token counts are new tokens (input not read from cache, plus output) as the apps reported them.
 
@@ -37,6 +39,8 @@ Token counts are new tokens (input not read from cache, plus output) as the apps
 2. **The reviewer found real issues anyway.** In the sheet run, Sol asked for four changes the hidden tests did not cover. Whether that matters depends on what you are building; for a product, it is the point of review.
 3. **A team survives what stops a single AI.** The team run stalled because Claude ran out of usage, a limit any single-model setup also hits. Roundtable now recognises "you've hit your limit · resets 9:20pm", stops retrying until then, and hands that AI's unfinished tasks to the others, whose branch starts from its work, and its reviews to another reviewer.
 4. **Planning shape matters for speed.** The quick planner made the second AI's test-writing task wait for the first AI's code, so it sat idle for the first minutes. Quick plans are now told to let independent work run in parallel.
+
+5. **A team is as good as its best member, and much better than its weakest.** On the pond, Luna alone broke (its simulation turned into NaN; the owner, clicking the water, saw it "go dry"), Haiku alone passed everything, and the two together passed everything. That is a real gain over Luna, not over Haiku, and it cost about ten times Luna's tokens.
 
 ## Next
 
