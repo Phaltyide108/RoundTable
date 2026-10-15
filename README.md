@@ -119,6 +119,16 @@ And with small models at low thinking, where single models do make mistakes:
 | pondpro, the pond with exact physics (32 checks) | 31/32 in 8.1 min | 26/32 in 1.2 min | 31/32 in 9.9 min |
 | quizhard, 30 hard questions (3 runs each) | 28, 29, 29 | 17, 17, 18 | **30, 30, 30** |
 
+**Fresh problems nobody has seen** (`--task fresh`: 20 hard competition-style problems made up for each run, every tool off; published sets such as AIME 2025 turned out to be memorised). Each member of a team is scored on its own answer too, written before it saw the others':
+
+| Set | GPT-6.1 Sol (low) alone | Sol × 3, majority vote | Council of two Sol (low), and each member alone |
+| --- | --- | --- | --- |
+| 301 | 20 | 20 | 20 (17, 20) |
+| 302 | 18 | 20 | **20 (15, 16)**: both members were wrong on two problems, and the final step still got them right |
+| 303 | 20 | 20 | 20 (20, 20) |
+
+In short: combining helps when every member can do the work, mostly because several independent attempts beat one; a plain majority vote gets most of that for fewer tokens, and a council adds the rare case where every member was wrong. A partner that cannot do the task adds nothing (GPT-6 Luna at low thinking refused or guessed on these problems).
+
 The honest reading: on building tasks the team is as good as its best member and much better than its weakest; on hard questions, asking the table beat the best member in three runs out of three (after two council fixes those runs exposed). It costs several times the tokens (about 4.5 times Haiku's on the quiz). On a clear specification of this size, today's top models each get everything right alone, so a team cannot be *more* accurate there; it costs more time and tokens, because the other model reviews the work. The first team run did find what a team is good for: when one AI ran out of its plan's usage, its work could pass to the other (which Roundtable now does by itself, keeping the work done so far), and the reviewer found real issues the hidden tests didn't cover. Where teams should help most is where a single model makes mistakes: smaller models, vaguer goals, bigger codebases. [docs/benchmarks.md](docs/benchmarks.md) has every run and its details.
 
 ## Quickstart: the terminal

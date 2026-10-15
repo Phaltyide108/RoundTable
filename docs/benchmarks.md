@@ -13,6 +13,8 @@ Run them yourself: `rt bench run --task sheet` or `rt bench run --task sql`, and
 | `pondpro` | The pond measured against exact physics: waves at 2.0 m/s, amplitude halving every 3 s, stable under 60 strong ripples, fish 0.4 m apart turning at most 3 rad/s, stones, a heron they flee, pellets that float 2 s then sink at 0.25 m/s, 200 fish fast enough, seeded determinism | 32 | Same as `pond`, with each number measured within a tolerance |
 | `quiz` | 30 tricky questions with exact answers (counting traps, modular arithmetic, clock angles, letter counting) | 30 | Exact answers. One AI alone answers in one read-only run; a team answers by asking the table |
 | `quizhard` | 30 competition-style questions (inclusion-exclusion, derangements, base-12 trailing zeros, chord regions, ...) | 30 | Every answer computed by a program |
+| `aime` | The 30 problems of AIME 2025, tools off | 30 | Published answers. **Not a fair test:** the models have seen it (see below) |
+| `fresh` | 20 hard competition-style problems made up from a seed for each run (towers of powers, Lucas' theorem, digit counting with divisibility, order-3 recurrences out to 10^15, 12-person seatings with forbidden pairs, necklaces, ...), tools off | 20 | Every answer computed by a program and checked a second way in the tests; `--seed N` repeats a set |
 | `sql` | A SQL engine (CREATE, INSERT, SELECT with joins, GROUP BY, HAVING, ORDER BY, LIMIT, UPDATE, DELETE) that must give exactly SQLite's answers: NULL logic, integer division, `%` with reals, type affinity on insert, mixed-type ordering, `||` binding tighter than `*` | 111 | Every query runs on real SQLite too; answers must match, int versus real included. Code that hands the work to `sqlite3` scores 0 |
 
 ## Results
@@ -46,6 +48,53 @@ All runs: default thinking effort (Claude Code's default; Codex's `xhigh` from t
 | 2026-10-15 | quizhard | **Team, 3 runs** | **30, 30, 30** | ~2 | ~76k each | Better than its best member in every run |
 
 Token counts are new tokens (input not read from cache, plus output) as the apps reported them.
+
+## Does combining models raise the score? (fresh problems, tools off)
+
+The question: on problems a single model sometimes gets wrong, does a team of models get more right than its best member, and is that worth the cost?
+
+### How this was measured
+
+- **Problems nobody has seen.** Published sets are in the models' training data: on AIME 2025, Claude Haiku 5.5 at low thinking with every tool off scored 30/30 and wrote that it recalled two answers "from memory of the published answers". So `fresh` makes 20 new problems from a seed for every run, with large numbers that make counting by hand hopeless; each needs the right idea carried out without a slip. Every answer is computed by a program.
+- **Tools off, the same for everyone.** No code, no web, no files. (An earlier version let Codex keep a read-only shell; GPT-6.1 Sol found this by reading the code. The traces of every Codex run show no commands and no file reads, so the results below stand, and the gap is now closed: Codex runs with its shell, browser, web search and MCP off, in an empty folder, and the answers are not on disk during a run.)
+- **Every member scored inside the team.** In a council each model writes its own answer first, without seeing the others. Those answers are scored too, so a team's final answer is compared with its own members on the same problems in the same run.
+- **The baseline a council must beat:** one model answering three times on its own with a majority vote (`--vote`), at a similar cost.
+
+### Results
+
+Each row is one set of 20 problems; each set has different problems.
+
+| Set | Contender | Final | Each member on its own | Tokens |
+| --- | --- | --- | --- | --- |
+| 101 | Claude Haiku 5.5 (low) alone | 19 | | |
+| 101 | GPT-6 Luna (low) alone | 0 | refused: "I can't provide a reliable set of 20 answers under the no tools constraint" | 14k |
+| 101 | Team: Haiku (low) + Luna (low) | 18 | Haiku 18, Luna 0 (guessed every answer) | 102k |
+| 102 | Team: Haiku (low) + Luna (low) | 18 | Haiku 16, Luna 0 | 134k |
+| 103 | Team: Haiku (low) + Luna (low) | 18 | Haiku 18, Luna 0 | 116k |
+| 201-203 | GPT-6.1 Sol (low) alone (Haiku could not start: Claude's weekly limit) | 19, 17, 20 | | 18k each |
+| 301 | Sol (low) alone | 20 | | 23k |
+| 301 | Sol (low) × 3, majority vote | 20 | 20, 17, 20 | 74k |
+| 301 | Council: Sol (low) + Sol (low) | 20 | 17, 20 | 116k |
+| 302 | Sol (low) alone | 18 | | 9k |
+| 302 | Sol (low) × 3, majority vote | 20 | 20, 20, 19 | 91k |
+| 302 | Council: Sol (low) + Sol (low) | **20** | **15, 16** | 115k |
+| 303 | Sol (low) alone | 20 | | 13k |
+| 303 | Sol (low) × 3, majority vote | 20 | 20, 20, 20 | 47k |
+| 303 | Council: Sol (low) + Sol (low) | 20 | 20, 20 | 87k |
+
+### What it shows
+
+1. **A council can beat every one of its members.** In set 302 the two Sol seats' own answers scored 15 and 16; the council's final answer scored 20. They disagreed on 7 problems and the final answer got all 7 right. On two of them (Q16, Q18) **both members were wrong, with different numbers** (200 and 840; 579 and 75), and the final step, which works out every disputed item again, reached the right answer (960; 81). Voting cannot do that: it can only pick among the answers it was given.
+2. **A partner must be able to do the work.** GPT-6 Luna at low thinking cannot do this mathematics without tools: alone it refused, and told to answer everything it guessed and scored 0. With such a partner the team was no better than Haiku's own answer in two sets of three; in the third (102) it gained 2, and both fixes were Haiku correcting its own off-by-one slips (885 → 886, 725 → 726) while re-checking disputed items, not anything Luna knew.
+3. **Asking more than once is most of the gain, and it is cheaper.** In all three sets the majority vote of three Sol runs reached the same final score as the council (20 each time) for 47-91k tokens against the council's 87-116k. Set 303 separated nobody: every run got all 20. GPT's reading of the literature (majority voting explains most debate gains) holds here so far. The council's advantage is the case in point 1, when every independent answer is wrong; three sets are too few to say how often that happens.
+4. **Models fail on the same things.** Across all runs the misses cluster in the same few problem types: counting numbers by digit sum and divisibility (missed in 5 of 7 runs checked), the 10^15th term of a recurrence, and constrained lattice paths. When every member makes the same mistake, neither voting nor a council can fix it.
+5. **Run-to-run variation is large.** The same model at the same setting scored 15 to 20 on one set of problems (Sol in set 302: 18 alone, 20, 20, 19 in the vote, 15 and 16 inside the council). One run is not a measurement; compare members inside the same run, and repeat.
+
+### The honest answer
+
+Yes, combining raises the score, but under two conditions: every member must be able to do the task on its own, and the gain shows up where single answers are unreliable. Most of it comes from having several independent attempts; a plain majority vote gets most of it at lower cost. A council adds something a vote cannot, fixing problems that every member got wrong, and it did so in one of three sets. A weak partner does not help: it adds cost and noise.
+
+Not yet measured, and needed before stronger claims: more sets (the differences here are a few problems), a council of two different strong models (Haiku + Sol; Claude's weekly limit stopped those runs), the same total budget for every condition, and problem families that do not overlap with what both models find hard.
 
 ## What we learned
 
