@@ -20,6 +20,7 @@ async () => {
   ok("bounds", P.bounds && P.bounds.radius === 10 && P.bounds.depth === 3, JSON.stringify(P.bounds));
   ok("at_least_15_fish", P.fish.length >= 15, `${P.fish.length} fish`);
   ok("fish_have_position_and_velocity", P.fish.length && P.fish.every(f => f.position && f.velocity && ["x", "y", "z"].every(k => num(f.position[k]) && num(f.velocity[k]))), "");
+  const finite = () => P.fish.every(f => ["x", "y", "z"].every(k => num(f.position[k]) && num(f.velocity[k])));
 
   // it animates by itself
   P.paused = false;
@@ -45,7 +46,7 @@ async () => {
       const F = P.fish.map(f => ({ p: copy(f.position), v: copy(f.velocity) }));
       for (const f of F) {
         const r = Math.hypot(f.p.x, f.p.z);
-        if (r > 10 || f.p.y > 0 || f.p.y < -3) outside++;
+        if (!(r <= 10 && f.p.y <= 0 && f.p.y >= -3)) outside++;          // NaN counts as outside too
         else if (r > 10 - 0.25 || f.p.y > -0.25 || f.p.y < -3 + 0.25) near++;
         speeds.push(Math.hypot(f.v.x, f.v.y, f.v.z));
       }
@@ -60,7 +61,7 @@ async () => {
   }
   const simMs = performance.now() - tSim;
   ok("simulation_is_fast", simMs < 12000, `20 s simulated in ${(simMs / 1000).toFixed(1)} s`);
-  ok("fish_stay_in_the_pond", outside === 0, `${outside} fish positions outside the water`);
+  ok("fish_stay_in_the_pond", outside === 0 && finite(), `${outside} fish positions outside the water${finite() ? "" : " (some became NaN)"}`);
   ok("fish_keep_off_walls_bottom_surface", near <= speeds.length * 0.02, `${near} of ${speeds.length} positions within 0.25 m of a boundary`);
   const ms = mean(speeds), mx = Math.max(...speeds);
   ok("fish_speed_is_limited", ms >= 0.3 && ms <= 4 && mx <= 6, `mean ${ms.toFixed(2)} m/s, max ${mx.toFixed(2)} m/s`);
