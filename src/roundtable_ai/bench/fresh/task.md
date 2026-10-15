@@ -1,3 +1,3 @@
-Solve 20 competition-style problems made up fresh for this run (new numbers every time, so no model can have seen them); every answer is an integer from 0 to 999. No tools: pure reasoning.
+Solve 20 hard competition-style problems made up fresh for this run (new, large numbers every time, so no model can have seen them and counting by hand is hopeless); every answer is an integer from 0 to 999. No tools: pure reasoning.
 
 Published sets such as AIME 2025 turned out to be in the models' training data: Claude Haiku scored 30/30 on AIME 2025 at low thinking and said it recalled some answers from memory. These problems are generated from a seed (number theory, counting, recurrences, lattice geometry, digit problems), and every answer is computed by a program. `--seed N` repeats a run's problems.
