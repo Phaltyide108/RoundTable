@@ -19,7 +19,7 @@ const cache = { task: {}, diff: {}, doctor: null, log: null, logKey: "", older: 
 const ui = {
   mode: "note", level: null, allAsks: false, started: {}, preview: {}, confirm: {}, pick: {}, wstep: 0,
   accepting: {}, editOpen: false, linkOpen: false, cancelPlan: false, showDone: false, adding: false,
-  compose: "goal", askSkip: {}, followUp: null, modelOpen: null, freeOnly: false,
+  compose: "goal", askSkip: {}, followUp: null, modelOpen: null, freeOnly: false, qtab: {}, qside: {}, sideOpen: false,
 };
 const PAGES = {};
 
@@ -232,7 +232,7 @@ function longMd(text, key, limit) {
 
 /* ---------------------------------------------------------------- routes */
 
-const ALIAS = { overview: "room", home: "room", inbox: "room", tasks: "room", work: "room", models: "team", memory: "notes",
+const ALIAS = { question: "q", overview: "room", home: "room", inbox: "room", tasks: "room", work: "room", models: "team", memory: "notes",
   activity: "history", guide: "help", more: "team", reviews: "review", ask: "council", questions: "council" };
 const DRAWERS = ["plan", "task", "review", "ai", "add", "team", "alerts", "found", "settings", "usage", "notes", "help", "history", "switch", "council"];
 
@@ -249,7 +249,7 @@ function parseRoute() {
   return { page, parts: rest, sub: rest[0] || "" };
 }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
-function close() { go("#/room"); }
+function close() { go(ui.underQ ? "#/q/" + ui.underQ : "#/room"); }
 
 /* ---------------------------------------------------------------- toasts and server calls */
 
@@ -329,14 +329,28 @@ async function refresh(force) {
   catch (e) { if (S) toast("Lost contact with the dashboard", "Start it again with: rt ui", { error: true }); return; }
   if (taskRoute()) await loadTask(taskRoute());
   if (route.page === "ai" && route.sub) await loadActivity(route.sub);
-  if (route.page === "council" && route.sub) await loadCouncil(route.sub, next);
+  if ((route.page === "council" || route.page === "q") && route.sub) await loadCouncil(route.sub.toUpperCase(), next);
   const json = JSON.stringify(next) + JSON.stringify(cache.task[taskRoute()] || null) + (route.page === "ai" ? JSON.stringify(cache.activity[route.sub] || null) : "")
-    + (route.page === "council" ? JSON.stringify(cache.council[route.sub] || null) : "");
+    + (route.page === "council" || route.page === "q" ? JSON.stringify(cache.council[(route.sub || "").toUpperCase()] || null) : "");
   if (!force && json === lastJSON) return;
   lastJSON = json;
   S = next;
+  // redrawing would wipe the text you are selecting: wait until you let go
+  if (!force && selecting()) { pendingRender = true; return; }
   render();
 }
+
+/* Text you select stays selected: automatic updates wait while the mouse is down or text is selected. */
+let pendingRender = false, pointerDown = false;
+function selecting() {
+  if (pointerDown) return true;
+  const sel = window.getSelection();
+  return !!(sel && !sel.isCollapsed && sel.rangeCount && APP.contains(sel.anchorNode));
+}
+function renderIfWaiting() { if (pendingRender && !selecting()) { pendingRender = false; render(); } }
+document.addEventListener("mousedown", () => { pointerDown = true; });
+document.addEventListener("mouseup", () => { pointerDown = false; setTimeout(renderIfWaiting, 0); });
+document.addEventListener("selectionchange", () => { if (!pointerDown) renderIfWaiting(); });
 
 async function loadCouncil(id, st) {
   const known = cache.council[id];
@@ -386,7 +400,8 @@ function restore(snap, samePage) {
   const feed = APP.querySelector(".feed");
   if (feed) {
     const was = snap.scroll[".feed"];
-    feed.scrollTop = !was || was.bottom ? feed.scrollHeight : was.top;
+    // a question opens at its top; the conversation at its newest message
+    feed.scrollTop = route.page === "q" && !samePage ? 0 : !was || was.bottom ? (route.page === "q" && was ? was.top : feed.scrollHeight) : was.top;
   }
   if (samePage) {
     SCROLLERS.slice(1).forEach(sel => { const el = APP.querySelector(sel); if (el && snap.scroll[sel]) el.scrollTop = snap.scroll[sel].top; });
@@ -503,31 +518,159 @@ function displayName(handle) { return handle === "human" ? "You" : handle === "s
 /* ---------------------------------------------------------------- the room */
 
 function roomView(freshDrawer) {
-  const wrap = h("div", { class: "app" }, topbar(),
-    h("main", { class: "talk", "aria-label": "The conversation" }, progressLine(), feedView(), asksView(), composer()));
+  const q = route.page === "q" && route.sub ? route.sub.toUpperCase() : DRAWERS.includes(route.page) ? ui.underQ || "" : "";
+  if (!q && ui.autoFollow) { if (ui.followUp === ui.autoFollow) { ui.followUp = null; ui.compose = "goal"; } ui.autoFollow = null; }
+  const main = q ? questionPage(q) : h("main", { class: "talk", "aria-label": "The conversation" }, progressLine(), feedView(), asksView(), composer());
+  const wrap = h("div", { class: "app" + (sideHidden() ? " side-off" : "") + (ui.sideOpen ? " side-open" : "") },
+    sidebar(), h("div", { class: "main" }, topbar(), h("div", { class: "main-row" }, main, rail())), h("div", { class: "side-scrim", onclick: () => { ui.sideOpen = false; render(); } }));
   if (DRAWERS.includes(route.page)) wrap.append(...drawer(route.page, freshDrawer));
   return wrap;
 }
 
-/* The slim bar on top: the project, what is happening now, the AIs at the table, and one menu for everything else. */
-function topbar() {
-  const [title, sub] = headline();
+/* ---------------------------------------------------------------- the right rail (wide windows): what is happening now */
+
+function railSeat(x) {
+  const now = x.now && ago(x.now.t) < 600 ? x.now : null;
+  const [verb] = now ? STEP[now.kind] || ["is working"] : [""];
+  const lamp = lampOf(x);
+  const attn = needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state);
+  const working = lamp === "busy";
+  return h("button", { class: "rail-seat" + (working ? " working" : ""), type: "button", title: "See everything " + x.handle + " is doing", onclick: () => go("#/ai/" + x.handle) },
+    h("span", { class: "side-av" }, avatar(x.handle, "sm", true), h("i", { class: "lamp " + (attn ? "attn" : lamp || "off") })),
+    h("span", { class: "t" },
+      h("span", { class: "rail-name" }, h("strong", { text: x.handle }), h("span", { class: "faint", text: prettyModel(x.model) })),
+      h("span", { class: "rail-phrase" + (attn ? " you-text" : "") }, seatPhrase(x), working ? typing() : null),
+      now && now.kind !== "start" ? h("span", { class: "rail-step" + (["run", "edit", "read"].includes(now.kind) ? " mono" : "") },
+        h("span", { class: "faint", text: capital(verb.replace(/^is /, "")) + " · " + agoText(now.t) + " " }), fit(plainText(now.text), 140)) : null));
+}
+
+function rail() {
+  if (!S.seats.length) return null;
+  const p = S.plan;
+  const live = isLivePlan(p);
+  const kids = [h("section", { class: "rail-sec" },
+    h("div", { class: "spread" }, h("h2", { text: "Your AIs right now" }),
+      h("span", { class: "row" }, h("button", { class: "link", type: "button", onclick: () => go("#/add") }, "Add"), h("button", { class: "link", type: "button", onclick: () => go("#/team") }, "Manage"))),
+    h("div", { class: "rail-seats" }, S.seats.map(railSeat)))];
+  if (live && p.stage === "locked") {
+    const pr = progress(S);
+    const bar = h("div", { class: "bar", role: "img", "aria-label": `${pr.done} of ${pr.total} done` });
+    const done = h("i", { class: "done" }), going = h("i", { class: "going" });
+    done.style.width = pr.total ? (100 * pr.done / pr.total) + "%" : "0";
+    going.style.width = pr.total ? (100 * pr.active / pr.total) + "%" : "0";
+    bar.append(done, going);
+    kids.push(h("section", { class: "rail-sec" },
+      h("div", { class: "spread" }, h("h2", { text: "The plan" }), h("button", { class: "link", type: "button", onclick: () => go("#/plan") }, "Open")),
+      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 160) }), bar,
+      h("p", { class: "faint", text: `${pr.done} of ${pr.total} done · ${pr.active} in progress` }), taskGroups(4)));
+  } else if (p && p.goal && !live) {
+    kids.push(h("section", { class: "rail-sec" },
+      h("div", { class: "spread" }, h("h2", { text: "Last goal" }), h("span", { class: "pill ok", text: p.stage_label || "finished" })),
+      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 220) }), taskGroups(5)));
+  } else if (live) {
+    kids.push(h("section", { class: "rail-sec" },
+      h("div", { class: "spread" }, h("h2", { text: "The plan" }), h("button", { class: "link", type: "button", onclick: () => go("#/plan") }, "Open")),
+      h("p", { class: "rail-goal", text: fit(plainText(p.goal), 160) }), planSteps(p)));
+  }
+  const running = (S.councils || []).filter(c => !["done", "failed", "cancelled"].includes(c.stage));
+  if (running.length) kids.push(h("section", { class: "rail-sec" }, h("h2", { text: "Questions being answered" }),
+    running.map(c => h("button", { class: "side-item q", type: "button", onclick: () => go("#/q/" + c.id) }, questionDot(c),
+      h("span", { class: "t", text: (c.kind === "rescue" ? "Second opinion on " + c.task : plainText(c.question).split("\n")[0]) + " · " + questionStatus(c).toLowerCase() })))));
+  const done = S.tasks.filter(t => t.status === "done").length;
+  const tokens = (S.councils || []).reduce((n, c) => n + (c.tokens || 0), 0);
+  kids.push(h("section", { class: "rail-sec rail-stats" },
+    h("div", null, h("strong", { text: String(done) }), h("span", { text: done === 1 ? "task done" : "tasks done" })),
+    h("div", null, h("strong", { text: String((S.councils || []).length) }), h("span", { text: "recent questions" })),
+    h("div", null, h("strong", { text: tokens ? num(tokens) : "–" }), h("span", { text: "tokens on them" }))));
+  return h("aside", { class: "rail", "aria-label": "What is happening now" }, kids);
+}
+
+/* ---------------------------------------------------------------- the sidebar (like ChatGPT's or Claude's) */
+
+function sideHidden() { return store("rt.side") === "off"; }
+function toggleSide() {
+  if (window.matchMedia("(max-width: 860px)").matches) ui.sideOpen = !ui.sideOpen;
+  else store("rt.side", sideHidden() ? "on" : "off");
+  render();
+}
+function newThread(mode) {
+  ui.compose = mode;
+  if (mode === "goal") ui.followUp = null;
+  ui.sideOpen = false;
+  go("#/room");
+  setTimeout(() => { const el = APP.querySelector("#composer-text"); if (el) el.focus(); }, 0);
+}
+function shortPath(root) { return String(root || "").replace(/^\/home\/[^/]+|^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/, "~"); }
+
+function sideItem(label, ic, hash, on, extra) {
+  return h("button", { class: "side-item" + (on ? " on" : ""), type: "button", "aria-current": on ? "page" : null, onclick: () => { ui.sideOpen = false; go(hash); } },
+    icon(ic, "sm"), h("span", { class: "t", text: label }), extra != null && extra !== "" ? h("span", { class: "side-count", text: String(extra) }) : null);
+}
+
+function questionDot(c) {
+  return h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work pulse"), "aria-hidden": "true" });
+}
+
+function sidebar() {
   const p = S.project;
+  const qs = S.councils || [];
+  const cur = route.page === "q" ? (route.sub || "").toUpperCase() : "";
+  const live = isLivePlan(S.plan);
+  const pr = live && S.plan.stage === "locked" ? progress(S) : null;
+  const found = S.tasks.filter(t => t.status === "backlog").length;
+  const alerts = (S.alerts || []).length;
+  return h("nav", { class: "side", "aria-label": "Roundtable" },
+    h("div", { class: "side-top" },
+      h("button", { class: "side-proj", type: "button", title: "Switch project · " + p.root, onclick: () => go("#/switch") },
+        h("img", { src: "/icon.svg", alt: "" }), h("span", { class: "t" }, h("strong", { text: p.name }), h("span", { text: shortPath(p.root) })), icon("swap", "sm")),
+      h("button", { class: "ghost icon-only side-hide", type: "button", title: "Hide the sidebar", "aria-label": "Hide the sidebar", onclick: toggleSide }, icon("back", "sm"))),
+    h("div", { class: "side-new" },
+      h("button", { class: "side-btn", type: "button", onclick: () => newThread("goal"), disabled: live ? true : null, title: live ? "Finish or cancel the current plan first" : "Give your AIs something to build" },
+        icon("plus", "sm"), "New goal"),
+      h("button", { class: "side-btn", type: "button", onclick: () => newThread("ask"), title: MODES.ask.tip }, icon("ask", "sm"), "Ask the table")),
+    h("div", { class: "side-scroll" },
+      h("div", { class: "side-group" },
+        sideItem("Conversation", "history", "#/room", route.page === "room"),
+        live ? sideItem(pr ? "Plan · " + pr.done + " of " + pr.total + " done" : "Plan · " + (S.plan.stage_label || "in progress"), "plan", "#/plan", route.page === "plan") : null,
+        found ? sideItem("Work they found", "plus", "#/found", route.page === "found", found) : null,
+        alerts ? sideItem("Problems", "alert", "#/alerts", route.page === "alerts", alerts) : null),
+      h("div", { class: "side-group" },
+        h("div", { class: "side-label" }, h("span", { text: "Questions" }), qs.length ? h("button", { class: "link", type: "button", onclick: () => go("#/council") }, "All") : null),
+        qs.length ? qs.map(c => h("button", { class: "side-item q" + (c.id === cur ? " on" : ""), type: "button", title: c.question, "aria-current": c.id === cur ? "page" : null,
+            onclick: () => { ui.sideOpen = false; go("#/q/" + c.id); } },
+            questionDot(c), h("span", { class: "t", text: c.kind === "rescue" ? "Second opinion on " + c.task : plainText(c.question).split("\n")[0] })))
+          : h("p", { class: "side-empty", text: "Questions you ask the table show up here, with every AI's answer side by side." }))),
+    h("div", { class: "side-team" },
+      h("div", { class: "side-label" }, h("span", { text: "Team" }), h("button", { class: "link", type: "button", onclick: () => go("#/team") }, "Manage")),
+      S.seats.map(x => {
+        const lamp = lampOf(x);
+        const attn = needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state);
+        return h("button", { class: "side-seat" + (route.page === "ai" && route.sub === x.handle ? " on" : ""), type: "button", title: `${x.handle} · ${prettyModel(x.model)}`, onclick: () => go("#/ai/" + x.handle) },
+          h("span", { class: "side-av" }, avatar(x.handle, "sm", true), h("i", { class: "lamp " + (attn ? "attn" : lamp || "off") })),
+          h("span", { class: "t" }, h("strong", null, x.handle, h("span", { class: "faint", text: " " + prettyModel(x.model) })), h("span", { text: seatPhrase(x) })));
+      }),
+      h("button", { class: "side-item add", type: "button", onclick: () => go("#/add") }, icon("plus", "sm"), h("span", { class: "t", text: "Add an AI" }))),
+    h("div", { class: "side-foot" },
+      h("button", { class: "ghost icon-only", type: "button", title: "Usage and limits", "aria-label": "Usage and limits", onclick: () => go("#/usage") }, icon("usage", "sm")),
+      h("button", { class: "ghost icon-only", type: "button", title: "Notes for the AIs", "aria-label": "Notes for the AIs", onclick: () => go("#/notes") }, icon("notes", "sm")),
+      themeButton(),
+      h("button", { class: "ghost icon-only", type: "button", title: "Settings", "aria-label": "Settings", onclick: () => go("#/settings") }, icon("settings", "sm")),
+      h("button", { class: "ghost icon-only", type: "button", title: "Help", "aria-label": "Help", onclick: () => go("#/help") }, icon("help", "sm"))));
+}
+
+/* The slim bar over the conversation: what is happening now, and search. */
+function topbar() {
+  const q = route.page === "q" && route.sub ? councilOf(route.sub.toUpperCase()) || cache.council[route.sub.toUpperCase()] : null;
+  const [title, sub] = route.page === "q" ? [q ? (q.kind === "rescue" ? "Second opinion on " + q.task : fit(plainText(q.question).split("\n")[0], 90)) : "A question to the table",
+    q ? questionStatus(q) : ""] : headline();
   return h("header", { class: "topbar" },
     h("div", { class: "tb-left" },
-      h("button", { class: "tb-proj", type: "button", title: "Switch project · " + p.root, onclick: () => go("#/switch") },
-        h("img", { src: "/icon.svg", alt: "" }), h("span", { text: p.name }))),
-    h("div", { class: "tb-mid", role: "status", title: sub || null }, h("strong", { text: title }), sub ? h("span", { text: sub }) : null),
+      h("button", { class: "ghost icon-only tb-btn side-toggle", type: "button", title: "Show the sidebar", "aria-label": "Show the sidebar", onclick: toggleSide }, icon("menu", "sm")),
+      h("div", { class: "tb-mid", role: "status", title: sub || null }, h("strong", { text: title }), sub ? h("span", { text: sub }) : null)),
     h("div", { class: "tb-right" },
-      h("div", { class: "faces", role: "list", "aria-label": "Your AIs" }, S.seats.map(x => {
-        const lamp = lampOf(x);
-        return h("button", { class: "face" + (lamp ? " " + lamp : "") + (needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state) ? " attn" : ""),
-          type: "button", role: "listitem", title: `${x.handle} · ${prettyModel(x.model)}\n${seatPhrase(x)}`,
-          "aria-label": `${x.handle}: ${seatPhrase(x)}`, onclick: () => go("#/ai/" + x.handle) }, avatar(x.handle, "sm", true));
-      }), h("button", { class: "face add", type: "button", title: "Add an AI", "aria-label": "Add an AI", onclick: () => go("#/add") }, icon("plus", "sm"))),
-      isLivePlan(S.plan) ? h("button", { class: "ghost tb-btn", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"), h("span", { class: "hide-narrow", text: "Plan" })) : null,
-      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Search everything that happened", "aria-label": "Search", onclick: () => go("#/history") }, icon("search", "sm")),
-      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Team, plan, settings and more", "aria-label": "Menu", onclick: () => go("#/team") }, icon("menu", "sm"))));
+      isLivePlan(S.plan) && route.page !== "q" ? h("button", { class: "ghost tb-btn", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"), h("span", { class: "hide-narrow", text: "Plan" })) : null,
+      S.project.frozen ? pauseButton() : null,
+      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Search everything that happened", "aria-label": "Search", onclick: () => go("#/history") }, icon("search", "sm"))));
 }
 
 /* A hairline under the top bar that fills as the plan's tasks get done. */
@@ -842,7 +985,7 @@ function councilCard(id, e, fallback) {
       text: { answering: rescue ? "Looking" : "Answering", ranking: "Ranking", combining: "Combining", failed: "Couldn't answer", cancelled: "Stopped" }[c.stage] || c.stage }) : null,
     e ? h("time", { text: e.at }) : null);
   if (!c) return h("article", { class: "council" }, head, h("p", { class: "muted", text: fallback || id }),
-    h("div", { class: "row" }, h("button", { class: "small", type: "button", onclick: () => go("#/council/" + id) }, "Open it")));
+    h("div", { class: "row" }, h("button", { class: "small", type: "button", onclick: () => go("#/q/" + id) }, "Open it")));
   const members = h("ul", { class: "council-members plain" }, c.members.map(m => {
     const [txt, tone] = memberState(c, m);
     const place = c.stage === "done" && c.ranking.length > 1 ? placeOf(c, m.seat) : null;
@@ -867,12 +1010,137 @@ function councilCard(id, e, fallback) {
       longMd(c.final + (c.final_long ? "\n\n…" : ""), "cf-" + id, 900)));
   }
   if (c.stage === "failed" && c.error) kids.push(h("p", { class: "bad-text", text: plainText(c.error) }));
-  const actions = [h("button", { class: "small", type: "button", onclick: () => go("#/council/" + id) }, icon("review", "sm"), c.stage === "done" ? "See every answer" : "Watch it")];
+  const actions = [h("button", { class: "small", type: "button", onclick: () => go("#/q/" + id) }, icon("review", "sm"), c.stage === "done" ? "See every answer" : "Watch it")];
   if (c.stage === "done" && !rescue) actions.push(
     h("button", { class: "small", type: "button", onclick: () => askFollowUp(c) }, icon("ask", "sm"), "Ask a follow-up"),
     h("button", { class: "small", type: "button", onclick: () => buildFrom(c) }, icon("plan", "sm"), "Build this"));
   kids.push(h("div", { class: "row" }, actions));
   return h("article", { class: "council" + (rescue ? " rescue" : "") + " st-" + c.stage }, kids);
+}
+
+/* ---------------------------------------------------------------- a question to the table, on its own page
+   Like LLM Council: the question, the three stages, the final answer first, then each AI's own answer
+   (tabs, or side by side) and a table of who ranked whom. */
+
+function questionStatus(c) {
+  return { answering: c.kind === "rescue" ? "Reading the failure and the code" : "Each AI is answering on its own", ranking: "They are ranking the answers, without names",
+    combining: (c.chair || "The best-ranked AI") + " is writing the final answer", done: "Answered" + (c.at ? " at " + c.at : ""), failed: "Couldn't answer", cancelled: "Stopped" }[c.stage] || capital(c.stage);
+}
+
+function copyText(text, what) {
+  const done = () => toast("Copied", what || "");
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => toast("Couldn't copy", "Select the text and copy it yourself.", { error: true }));
+  else toast("Couldn't copy", "Select the text and copy it yourself.", { error: true });
+}
+
+function typing() { return h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")); }
+
+function questionStages(d, rescue) {
+  const def = rescue ? [["answering", "Reads the failure"], ["done", "Sends a diagnosis"]]
+    : [["answering", "1 · Each answers alone"], ["ranking", "2 · They rank, without names"], ["combining", "3 · The best combines them"]];
+  const at = d.stage === "done" ? def.length : Math.max(0, def.findIndex(x => x[0] === d.stage));
+  const stopped = d.stage === "failed" || d.stage === "cancelled";
+  return h("ol", { class: "q-stages" }, def.map(([sid, label], i) => h("li", { class: i < at ? "done" : i === at && !stopped ? "now" : stopped && i === at ? "stop" : "" },
+    h("span", { class: "tick", "aria-hidden": "true" }, i < at ? icon("check", "sm") : i === at && !stopped ? typing() : null), h("span", { text: label }))));
+}
+
+function questionPage(id) {
+  const d = cache.council[id];
+  const shell = (...kids) => h("main", { class: "talk qpage", "aria-label": "A question to the table" }, h("div", { class: "feed" }, h("div", { class: "feed-inner q-inner" }, kids)));
+  if (!d) { loadCouncil(id).then(render); return shell(h("p", { class: "muted", text: "Loading…" })); }
+  if (d.ok === false) return shell(note(plainText(d.message) || "There is no such question."), h("div", { class: "row" }, h("button", { type: "button", onclick: () => go("#/room") }, icon("back", "sm"), "Back to the conversation")));
+  const rescue = d.kind === "rescue";
+  const answers = d.parts.filter(x => x.stage === "answer");
+  const ranks = d.parts.filter(x => x.stage === "rank");
+  const finished = ["done", "failed", "cancelled"].includes(d.stage);
+  const placeOfSeat = seat => { const i = (d.ranking || []).findIndex(r => r.seat === seat); return i < 0 ? 0 : i + 1; };
+  const ranked = (d.ranking || []).length > 1;
+  const kids = [];
+
+  kids.push(rescue
+    ? h("div", { class: "box" }, h("p", { class: "faint", text: `Asked by Roundtable after ${d.task} failed its tests twice` }), longText(d.question, "qq-" + id, "", 600))
+    : h("div", { class: "me" }, h("div", { class: "bubble" }, longText(d.question, "qq-" + id, "", 600)), h("time", { text: `${d.at} · to ${d.members.join(", ")}` })));
+  kids.push(questionStages(d, rescue));
+
+  if (d.final) {
+    const by = d.chair ? (rescue ? `${d.chair}, from another company than the builder` : ranked && placeOfSeat(d.chair) === 1
+      ? `Written by ${d.chair}, whose answer the others ranked best, from every answer and review` : `Written by ${d.chair}, from every answer and review`) : "";
+    kids.push(h("article", { class: "q-final" },
+      h("header", null, h("span", { class: "q-badge", "aria-hidden": "true" }, icon("check", "sm")),
+        h("div", { class: "t" }, h("strong", { text: rescue ? `${d.chair}'s diagnosis` : "The table's answer" }), by ? h("span", { text: by }) : null),
+        h("button", { class: "ghost small", type: "button", onclick: () => copyText(d.final, "The table's answer is on your clipboard.") }, icon("copy", "sm"), "Copy")),
+      h("div", { class: "q-body" }, md(d.final))));
+  } else if (!finished) {
+    kids.push(h("article", { class: "q-final waiting" }, h("header", null, h("span", { class: "q-badge", "aria-hidden": "true" }, typing()),
+      h("div", { class: "t" }, h("strong", { text: questionStatus(d) }), h("span", { text: rescue ? "Its diagnosis appears here." : "The final answer appears here once they have answered and ranked each other." })))));
+  }
+  if (d.error) kids.push(note(plainText(d.error), d.stage === "failed" ? "warn" : ""));
+
+  if (answers.length) {
+    const side = !!ui.qside[id] && answers.length > 1;
+    const best = (d.ranking || [])[0];
+    const tab = answers.some(a => a.seat === ui.qtab[id]) ? ui.qtab[id] : best && answers.some(a => a.seat === best.seat) ? best.seat : answers[0].seat;
+    const meta = a => {
+      const x = seatOf(a.seat);
+      const place = ranked ? placeOfSeat(a.seat) : 0;
+      return h("div", { class: "q-meta" }, avatar(a.seat, "sm", true), h("strong", { text: a.seat }), h("span", { class: "faint", text: prettyModel((x || {}).model || "") }),
+        place ? h("span", { class: "place p" + place, title: "Where the others ranked it" }, "#" + place) : null,
+        h("span", { class: "faint grow-r", text: [a.label && !rescue ? "Answer " + a.label : "", a.seconds ? `${Math.round(a.seconds)} s` : "", a.tokens ? `${num(a.tokens)} tokens` : ""].filter(Boolean).join(" · ") }),
+        a.text ? h("button", { class: "ghost icon-only small", type: "button", title: "Copy this answer", "aria-label": "Copy " + a.seat + "'s answer", onclick: () => copyText(a.text, a.seat + "'s answer is on your clipboard.") }, icon("copy", "sm")) : null);
+    };
+    const body = a => a.status === "running" ? h("p", { class: "muted q-typing" }, a.seat + " is writing its answer ", typing())
+      : a.error ? note(plainText(a.error), "warn") : h("div", { class: "q-body" }, md(a.text || ""));
+    const tabs = answers.length > 1 ? h("div", { class: "q-tabs", role: "tablist", "aria-label": "Each AI's answer" },
+      answers.map(a => h("button", { class: "q-tab", type: "button", role: "tab", "aria-selected": String(!side && a.seat === tab), onclick: () => { ui.qtab[id] = a.seat; ui.qside[id] = false; render(); } },
+        avatar(a.seat, "xs", true), h("span", { text: a.seat }), a.status === "running" ? typing() : a.status === "failed" ? h("span", { class: "bad-text", text: "!" }) : null)),
+      h("button", { class: "q-tab sbs", type: "button", "aria-pressed": String(side), title: "Read every answer next to each other", onclick: () => { ui.qside[id] = !side; render(); } }, icon("swap", "sm"), "Side by side")) : null;
+    kids.push(h("section", { class: "q-sec" },
+      h("h2", { text: rescue ? "What it found" : "Each AI's own answer" }),
+      rescue ? null : h("p", { class: "muted", text: "Written before any of them saw the others'." }),
+      tabs,
+      side ? h("div", { class: "q-cols" }, answers.map(a => h("div", { class: "q-answer" }, meta(a), body(a))))
+        : (a => h("div", { class: "q-answer", role: tabs ? "tabpanel" : null }, meta(a), body(a)))(answers.find(a => a.seat === tab))));
+  }
+
+  if (!rescue && ranks.length && answers.length > 1) {
+    const authors = answers.filter(a => a.label).slice().sort((a, b) => (placeOfSeat(a.seat) || 99) - (placeOfSeat(b.seat) || 99));
+    const row = r => h("tr", null, h("th", { scope: "row" }, h("span", { class: "q-who" }, avatar(r.seat, "xs", true), r.seat)),
+      authors.map(a => {
+        const i = (r.ranking || []).indexOf(a.label);
+        return h("td", { class: (a.seat === r.seat ? "self " : "") + (i === 0 ? "first" : ""), title: a.seat === r.seat ? "Its own answer (it didn't know)" : null },
+          r.status === "running" ? typing() : i < 0 ? "–" : "#" + (i + 1));
+      }));
+    const avg = h("tr", { class: "avg" }, h("th", { scope: "row", text: "Average place" }), authors.map(a => {
+      const r = (d.ranking || []).find(x => x.seat === a.seat);
+      return h("td", { text: r && r.avg != null ? String(r.avg) : "–" });
+    }));
+    kids.push(h("section", { class: "q-sec" },
+      h("h2", { text: "Who ranked whom" }),
+      h("p", { class: "muted", text: "Each AI saw the answers as Answer A, B, C, in random order and without names, and ranked them all, its own included (shaded)." }),
+      h("div", { class: "q-table-wrap" }, h("table", { class: "q-table" },
+        h("thead", null, h("tr", null, h("th", { scope: "col", text: "Ranked by" }), authors.map(a => h("th", { scope: "col" }, h("span", { class: "q-who" }, avatar(a.seat, "xs", true), a.seat), h("span", { class: "faint", text: "Answer " + a.label }))))),
+        h("tbody", null, ranks.map(row)), ranked ? h("tfoot", null, avg) : null)),
+      ranks.map(r => h("details", { class: "taskcard", "data-k": `rev-${id}-${r.seat}` },
+        h("summary", null, icon("chevron", "sm"), avatar(r.seat, "sm", true), h("span", null, `Why ${r.seat} ranked them this way`),
+          r.status === "running" ? h("span", { class: "pill work", text: "ranking" }) : null),
+        r.error ? note(plainText(r.error), "warn") : h("div", { class: "q-body" }, md(String(r.text || "").split("FINAL RANKING:")[0]))))));
+  }
+
+  const actions = [];
+  if (d.stage === "done" && !rescue) actions.push(h("button", { class: "go", type: "button", onclick: () => buildFrom(d) }, icon("plan", "sm"), "Build this"));
+  if (!finished) actions.push(h("button", { class: "danger", type: "button",
+    onclick: e => act("council.cancel", { id }, { button: e.currentTarget, title: "Stopped", after: () => { delete cache.council[id]; } }) }, "Stop it"));
+  kids.push(h("div", { class: "q-foot" }, actions.length ? h("div", { class: "row" }, actions) : null,
+    h("p", { class: "faint", text: `${num(d.tokens)} tokens in all. They could read your project but not change it.` })));
+
+  const main = h("main", { class: "talk qpage", "aria-label": "A question to the table" }, h("div", { class: "feed" }, h("div", { class: "feed-inner q-inner" }, kids)));
+  if (d.stage === "done" && !rescue) {
+    ui.compose = "ask";
+    ui.followUp = id;
+    ui.autoFollow = id;
+    main.append(composer(true));
+  }
+  return main;
 }
 
 function askFollowUp(c) {
@@ -939,7 +1207,7 @@ function buildAsks() {
   if (runnable.length > 1) {
     const names = listWords(runnable.map(x => x.handle));
     asks.push({ key: "start-many", tone: "info", icon: "play", title: `${names} aren't running yet`,
-      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal: click its face at the top.",
+      body: "Let Roundtable run them in the background: it wakes each one whenever there is work, with your own logins. Or open each one in a terminal: click its name under Team.",
       actions: [{ label: "Run them in the background", primary: true, runSeats: runnable.map(x => x.handle) }] });
   }
   fresh.filter(x => !(runnable.length > 1 && runnable.includes(x))).forEach(x => {
@@ -1015,7 +1283,7 @@ const MODES = {
     hint: "Each AI answers on its own, then they rank each other's answers without knowing who wrote which, and the best one writes the final answer. They can read your project but change nothing." },
 };
 
-function composer() {
+function composer(followOnly) {
   const p = S.plan;
   if (!S.seats.length) return h("footer", { class: "composer" }, h("div", { class: "composer-inner" },
     h("div", { class: "box off" }, h("p", { class: "muted", text: "Add your AIs first. Then you'll give them a goal here." }),
@@ -1023,7 +1291,8 @@ function composer() {
   const live = isLivePlan(p);
   const mode = ui.compose === "ask" ? "ask" : !live ? "goal" : ["note", "problem", "task"].includes(ui.compose) ? ui.compose : "note";
   const quick = ui.planMode === "quick";
-  const M = mode === "goal" && quick ? Object.assign({}, MODES.goal, QUICK) : MODES[mode];
+  const M = followOnly ? Object.assign({}, MODES.ask, { placeholder: "Ask a follow-up. They see this question and its answer.", hint: "" })
+    : mode === "goal" && quick ? Object.assign({}, MODES.goal, QUICK) : MODES[mode];
   const level = ui.level || S.project.review || "mid";
   const askers = (S.can_ask || []).filter(hd => !ui.askSkip[hd]);
   const ta = h("textarea", { id: "composer-text", class: "grow", "data-k": "composer-" + mode, rows: "1", placeholder: M.placeholder, "aria-label": mode === "goal" ? "The goal" : M.label,
@@ -1040,7 +1309,7 @@ function composer() {
       if (!askers.length) { toast("Nobody can answer yet", "Only AIs in Claude Code, Codex or opencode can answer here. Add one, or tick one above."); return; }
       await act("council.ask", { question: text, seats: askers, follow_up: ui.followUp || null }, { button: btn, title: "Asked the table",
         body: askers.length > 1 ? "Each AI answers on its own first, then they rank each other's answers. Watch it in the conversation." : "One AI answers. Add more AIs for a real council.",
-        after: () => { clear(); ui.followUp = null; } });
+        after: res => { clear(); ui.followUp = null; ui.autoFollow = null; if (res && res.data && res.data.id) go("#/q/" + res.data.id); } });
     } else if (mode === "goal") await act("plan.goal", { goal: text, review: level, mode: quick ? "quick" : "full", auto: !!ui.autoLock },
       { button: btn, title: quick ? "On it" : "Planning started", body: quick ? "One AI is splitting it into tasks now" + (ui.autoLock ? "; work starts without asking you." : "; you approve the tasks before work starts.")
         : "Each AI now writes its own plan. If one isn't running, start it and it catches up.", after: clear });
@@ -1073,6 +1342,7 @@ function composer() {
       onclick: () => { if (ui.askSkip[hd]) delete ui.askSkip[hd]; else ui.askSkip[hd] = true; render(); } }, avatar(hd, "xs", true), hd)),
     ui.followUp ? h("span", { class: "chip on-follow" }, icon("ask", "sm"), "Following up on " + ui.followUp,
       h("button", { type: "button", class: "chip-x", "aria-label": "Not a follow-up", onclick: () => { ui.followUp = null; render(); } }, icon("x", "sm"))) : null) : null;
+  if (followOnly) return h("footer", { class: "composer asking slim" }, h("div", { class: "composer-inner" }, h("div", { class: "box" }, ta, sendBtn)));
   return h("footer", { class: "composer" + (mode === "ask" ? " asking" : "") }, h("div", { class: "composer-inner" }, modes, opts, who,
     h("div", { class: "box" }, ta, sendBtn),
     h("p", { class: "hint", text: M.hint + (mode === "goal" ? (ui.autoLock ? " Work starts without asking you: you won't read the test commands first." : " Nothing is built before you approve it.")
@@ -1148,6 +1418,7 @@ function taskGroups(limitDone) {
 /* ---------------------------------------------------------------- panels that open over the room */
 
 PAGES.room = () => null;
+PAGES.q = () => null;   // a question to the table: its own page in the middle (questionPage), not a drawer
 
 function drawer(page, fresh) {
   const view = PAGES[page](S) || {};
@@ -1289,7 +1560,7 @@ function goalForm(st, after) {
       h("div", { class: "row" }, planners.map((x, i) => h("label", { class: "check" },
         h("input", { type: "checkbox", "data-k": "planner-" + x.handle, value: x.handle, checked: i < 3, class: "planner" }),
         h("span", null, h("strong", { text: x.handle }), " ", h("span", { class: "faint", text: prettyModel(x.model) })))))) : null,
-    !planners.length ? note("None of your AIs is set to write plans. Click its face at the top to change that.", "warn") : null,
+    !planners.length ? note("None of your AIs is set to write plans. Click its name under Team to change that.", "warn") : null,
     h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: e => {
       const text = goal.value.trim();
       if (!text) { toast("Write the goal first", "One or two sentences is enough."); goal.focus(); return; }
@@ -1312,7 +1583,7 @@ PAGES.council = st => {
   if (!id) return { title: "Questions to the table", body: [
     h("p", { class: "muted", text: "Ask from the message box: every AI answers on its own, they rank each other's answers without names, and the one the others ranked best writes the final answer. Second opinions on failing tasks show up here too." }),
     h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: () => { ui.compose = "ask"; close(); render(); const el = APP.querySelector("#composer-text"); if (el) el.focus(); } }, icon("ask", "sm"), "Ask a new question")),
-    all.length ? h("ul", { class: "tasklist" }, all.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/council/" + c.id) },
+    all.length ? h("ul", { class: "tasklist" }, all.map(c => h("li", null, h("button", { type: "button", onclick: () => go("#/q/" + c.id) },
       h("span", { class: "dot " + (c.stage === "done" ? "ok" : c.stage === "failed" ? "stop" : c.stage === "cancelled" ? "hollow" : "work"), "aria-hidden": "true" }),
       h("span", { class: "t" }, h("strong", { text: c.kind === "rescue" ? `Second opinion on ${c.task}` : fit(c.question, 120) }),
         h("span", { text: `${c.id} · ${c.at} · ${c.members.map(m => m.seat).join(", ")}` }))))))
@@ -2235,6 +2506,8 @@ applyTheme();
 route = parseRoute();
 window.addEventListener("hashchange", () => {
   route = parseRoute();
+  if (route.page === "q") ui.underQ = (route.sub || "").toUpperCase();     // drawers open over the question, and close back to it
+  else if (route.page === "room") ui.underQ = "";
   if (taskRoute()) loadTask(taskRoute()).then(render);
   if (route.page === "ai" && route.sub) loadActivity(route.sub).then(render);
   if (route.page === "council" && !route.sub) cache.councilList = null;
@@ -2242,6 +2515,18 @@ window.addEventListener("hashchange", () => {
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && DRAWERS.includes(route.page) && S && S.mode === "project" && !inWelcome()) { e.preventDefault(); close(); }
+  else if (e.key === "Escape" && ui.sideOpen) { ui.sideOpen = false; render(); }
+  const mod = e.ctrlKey || e.metaKey;
+  const typing = e.target && (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || e.target.isContentEditable);
+  if (mod && e.key === "a" && !typing) {
+    // select what you are reading (the open sheet, else the conversation), not the buttons around it
+    const area = APP.querySelector(".drawer-body") || APP.querySelector(".feed-inner");
+    if (area) { e.preventDefault(); const r = document.createRange(); r.selectNodeContents(area); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  }
+  if (mod && !e.shiftKey && !e.altKey && S && S.mode === "project" && !inWelcome()) {
+    if (e.key === "k") { e.preventDefault(); go("#/history"); }                // search, as in most apps
+    else if (e.key === "b") { e.preventDefault(); toggleSide(); }             // the sidebar, as in VS Code
+  }
 });
 refresh(true);
 setInterval(() => { if (document.visibilityState === "visible") refresh(false); }, 3000);

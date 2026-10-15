@@ -210,3 +210,19 @@ def test_dashboard_speaks_plainly_and_links_to_real_pages(rt, fake_home):
     for name in ("index.html", "app.css", "app.js"):
         text = (ui / name).read_text(encoding="utf-8")
         assert not re.search(r"""(src|href)=["']https?:|url\(\s*["']?https?:|@import""", text), name
+
+
+def test_ui_layout_has_sidebar_question_page_and_keeps_selection():
+    js = (dashboard.UI_DIR / "app.js").read_text(encoding="utf-8")
+    css = (dashboard.UI_DIR / "app.css").read_text(encoding="utf-8")
+    # a question to the table opens on its own page (#/q/Q1), with each answer, side by side, and who ranked whom
+    assert "PAGES.q =" in js and "function questionPage(" in js and 'go("#/q/" + res.data.id)' in js
+    for part in ("Each AI's own answer", "Side by side", "Who ranked whom"):
+        assert part in js, part
+    # sidebar and right rail, the rail only where there is room
+    assert "function sidebar(" in js and "function rail(" in js
+    assert ".side {" in css and ".rail {" in css and "@media (max-width: 1359px) { .rail { display: none; } }" in css
+    # automatic updates never wipe text you are selecting; Ctrl+A selects what you read
+    assert "if (!force && selecting()) { pendingRender = true; return; }" in js
+    assert 'e.key === "a" && !typing' in js
+    assert "user-select: none" not in css
