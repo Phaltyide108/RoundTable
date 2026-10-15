@@ -421,21 +421,22 @@ function render() {
   }
 }
 
-function cycleTheme() {
-  const order = ["auto", "light", "dark"];
-  const next = order[(order.indexOf(store("rt.theme") || "auto") + 1) % 3];
-  store("rt.theme", next);
-  applyTheme();
-  render();
-}
+const THEMES = { auto: "Follow the system", snow: "Snow (light)", midnight: "Midnight (dark)", paper: "Paper (warm)" };
+function themeName() { const t = store("rt.theme"); return THEMES[t] ? t : "auto"; }
+function setTheme(t) { store("rt.theme", t); applyTheme(); render(); }
+function cycleTheme() { const order = Object.keys(THEMES); setTheme(order[(order.indexOf(themeName()) + 1) % order.length]); }
 function applyTheme() {
-  const t = store("rt.theme") || "auto";
+  const t = themeName();
   if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
 }
 function themeButton(withLabel) {
-  const theme = store("rt.theme") || "auto";
-  return h("button", { class: "ghost" + (withLabel ? "" : " icon-only"), type: "button", title: "Theme: " + theme, "aria-label": "Change the theme (now " + theme + ")", onclick: cycleTheme },
-    icon(theme === "dark" ? "moon" : "sun", "sm"), withLabel ? h("span", { text: "Theme: " + capital(theme) }) : null);
+  const theme = themeName();
+  return h("button", { class: "ghost" + (withLabel ? "" : " icon-only"), type: "button", title: "Theme: " + THEMES[theme], "aria-label": "Change the theme (now " + THEMES[theme] + ")", onclick: cycleTheme },
+    icon(theme === "midnight" ? "moon" : "sun", "sm"), withLabel ? h("span", { text: "Theme: " + THEMES[theme] }) : null);
+}
+function themePicker() {
+  return h("div", { class: "themes" }, Object.entries(THEMES).map(([k, label]) => h("button", { type: "button", class: "theme-pick t-" + k, "aria-pressed": String(themeName() === k), onclick: () => setTheme(k) },
+    h("span", { class: "swatch", "aria-hidden": "true" }, h("i"), h("i"), h("i")), h("span", { text: label }))));
 }
 
 /* ---------------------------------------------------------------- what each AI is doing, in a few words */
@@ -742,8 +743,15 @@ function feedView() {
     const m = say(e);
     if (!m) return;
     if (e.day !== day) { day = e.day; inner.append(h("div", { class: "day", text: dayLabel(day) })); cur = null; }
+    const actor = m.actor || e.actor;
+    if (!m.marker && !m.council && actor === "human" && (m.tone === "quiet" || /^(task|seat)\./.test(e.type))) {
+      // something you did (not something you said): a quiet line in the middle, like the other milestones
+      m.marker = /^(Added|Removed) /.test(m.text) ? "You " + m.text[0].toLowerCase() + m.text.slice(1) : m.text;
+      m.icon = "check";
+    }
     if (m.marker) {
-      inner.append(h("div", { class: "marker" + (m.you ? " you" : "") }, icon(m.icon || "dot", "sm"), h("span", null, linkify(m.marker)), h("time", { text: e.at })));
+      const said = String(m.marker).replace(/\b1 tasks\b/g, "1 task");
+      inner.append(h("div", { class: "marker" + (m.you ? " you" : "") }, icon(m.icon || "dot", "sm"), h("span", null, linkify(said)), h("time", { text: e.at })));
       cur = null;
       return;
     }
@@ -752,8 +760,14 @@ function feedView() {
       cur = null;
       return;
     }
-    const actor = m.actor || e.actor;
-    const line = longText(m.text, "ev" + e.id, "line" + (m.tone ? " " + m.tone : ""));
+    if (actor === "human") {
+      // your own words: a chat bubble on the right
+      inner.append(h("div", { class: "me" }, h("div", { class: "bubble" }, longText(m.text, "ev" + e.id, "", 420)), h("time", { text: e.at })));
+      cur = null;
+      return;
+    }
+    let line = longText(m.text, "ev" + e.id, "line" + (m.tone ? " " + m.tone : ""));
+    if (m.tone === "good" || m.tone === "bad") line = h("div", { class: "line-row " + m.tone }, icon(m.tone === "good" ? "check" : "alert", "sm"), line);
     if (cur && cur.actor === actor && cur.count < 10) { cur.lines.append(line); cur.count++; return; }
     const x = seatOf(actor);
     cur = { actor, count: 1, lines: h("div", { class: "lines" }, line) };
@@ -2022,6 +2036,7 @@ PAGES.settings = st => {
   st.config.forEach(c => (sections[c.section] = sections[c.section] || []).push(c));
   const doc = cache.doctor;
   return { title: "Settings", body: [
+    sec("Appearance", themePicker()),
     h("p", { class: "muted", text: "Changes save at once. The AIs can't change these." }),
     Object.entries(sections).filter(([k]) => MAIN_SECTIONS.includes(k)).sort((a, b) => MAIN_SECTIONS.indexOf(a[0]) - MAIN_SECTIONS.indexOf(b[0]))
       .map(([k, items]) => sec(SECTION_LABEL[k] || k, items.map(settingRow))),
@@ -2089,7 +2104,7 @@ PAGES.help = st => ({ title: "Help", body: [
     h("dt", { text: "Project" }), h("dd", { class: "mono", text: st.project.root }),
     h("dt", { text: "Roundtable's data" }), h("dd", { class: "mono", text: st.project.home }),
     h("dt", { text: "AIs' copies" }), h("dd", { class: "mono pre", text: st.seats.filter(x => x.worktree).map(x => x.worktree).join("\n") || "none yet" }))),
-  sec("Credits", h("p", { class: "muted", text: "Planning together and asking the table borrow from Andrej Karpathy's LLM Council (independent answers, anonymous peer ranking and a chairman). Task tracking learns from Steve Yegge's Beads and Gas Town, and messaging from MCP Agent Mail. Text is set in Atkinson Hyperlegible Next by the Braille Institute (SIL Open Font License)." })),
+  sec("Credits", h("p", { class: "muted", text: "Planning together and asking the table borrow from Andrej Karpathy's LLM Council (independent answers, anonymous peer ranking and a chairman). Task tracking learns from Steve Yegge's Beads and Gas Town, and messaging from MCP Agent Mail. Text is set in Geist by Vercel (SIL Open Font License)." })),
   h("p", { class: "faint", text: "Roundtable v" + st.project.version })] });
 
 /* ---------------------------------------------------------------- another project */
