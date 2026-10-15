@@ -503,31 +503,42 @@ function displayName(handle) { return handle === "human" ? "You" : handle === "s
 /* ---------------------------------------------------------------- the room */
 
 function roomView(freshDrawer) {
-  const wrap = h("div", { class: "room-wrap" }, h("div", { class: "room" }, crew(), talk(), planSide()));
+  const wrap = h("div", { class: "app" }, topbar(),
+    h("main", { class: "talk", "aria-label": "The conversation" }, progressLine(), feedView(), asksView(), composer()));
   if (DRAWERS.includes(route.page)) wrap.append(...drawer(route.page, freshDrawer));
   return wrap;
 }
 
-function crew() {
+/* The slim bar on top: the project, what is happening now, the AIs at the table, and one menu for everything else. */
+function topbar() {
+  const [title, sub] = headline();
   const p = S.project;
-  return h("aside", { class: "crew", "aria-label": "Your team" },
-    h("div", { class: "crew-head" }, h("img", { src: "/icon.svg", alt: "Roundtable" }),
-      h("button", { class: "proj", type: "button", title: p.root, onclick: () => go("#/switch") },
-        h("strong", { text: p.name }), h("small", { text: "Switch project" }))),
-    h("div", { class: "table-art" }, tableArt(S.seats, false)),
-    h("h2", { text: S.seats.length ? "At the table" : "Nobody at the table yet" }),
-    h("ul", { class: "mates" }, S.seats.map(x => {
-      const phrase = seatPhrase(x);
-      return h("li", null, h("button", { class: "mate", type: "button", "aria-current": route.page === "ai" && route.sub === x.handle ? "true" : null,
-        "aria-label": `${x.handle}, ${prettyModel(x.model)}: ${phrase}`, onclick: () => go("#/ai/" + x.handle) },
-        avatar(x.handle), h("span", { class: "who" }, h("strong", { text: x.handle }), h("span", { class: needsStart(x) || (x.runner && x.runner.state === "stuck") || /^Not running · its|^Not running · the|due$/.test(phrase) ? "you" : null, text: phrase }))));
-    })),
-    h("button", { class: "add-mate", type: "button", "aria-label": "Add an AI", onclick: () => go("#/add") }, icon("plus", "sm"), h("span", { text: "Add an AI" })),
-    h("div", { class: "crew-foot" }, pauseButton(),
-      h("div", { class: "tools" },
-        h("button", { class: "ghost", type: "button", onclick: () => go("#/settings") }, icon("settings", "sm"), h("span", { text: "Settings" })),
-        h("button", { class: "ghost", type: "button", onclick: () => go("#/help") }, icon("help", "sm"), h("span", { text: "Help" })),
-        themeButton(false))));
+  return h("header", { class: "topbar" },
+    h("div", { class: "tb-left" },
+      h("button", { class: "tb-proj", type: "button", title: "Switch project · " + p.root, onclick: () => go("#/switch") },
+        h("img", { src: "/icon.svg", alt: "" }), h("span", { text: p.name }))),
+    h("div", { class: "tb-mid", role: "status", title: sub || null }, h("strong", { text: title }), sub ? h("span", { text: sub }) : null),
+    h("div", { class: "tb-right" },
+      h("div", { class: "faces", role: "list", "aria-label": "Your AIs" }, S.seats.map(x => {
+        const lamp = lampOf(x);
+        return h("button", { class: "face" + (lamp ? " " + lamp : "") + (needsStart(x) || ["stuck", "limited"].includes((x.runner || {}).state) ? " attn" : ""),
+          type: "button", role: "listitem", title: `${x.handle} · ${prettyModel(x.model)}\n${seatPhrase(x)}`,
+          "aria-label": `${x.handle}: ${seatPhrase(x)}`, onclick: () => go("#/ai/" + x.handle) }, avatar(x.handle, "sm", true));
+      }), h("button", { class: "face add", type: "button", title: "Add an AI", "aria-label": "Add an AI", onclick: () => go("#/add") }, icon("plus", "sm"))),
+      isLivePlan(S.plan) ? h("button", { class: "ghost tb-btn", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"), h("span", { class: "hide-narrow", text: "Plan" })) : null,
+      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Search everything that happened", "aria-label": "Search", onclick: () => go("#/history") }, icon("search", "sm")),
+      h("button", { class: "ghost icon-only tb-btn", type: "button", title: "Team, plan, settings and more", "aria-label": "Menu", onclick: () => go("#/team") }, icon("menu", "sm"))));
+}
+
+/* A hairline under the top bar that fills as the plan's tasks get done. */
+function progressLine() {
+  const p = S.plan;
+  if (!isLivePlan(p) || p.stage !== "locked") return null;
+  const pr = progress(S);
+  const done = h("i", { class: "done" }), going = h("i", { class: "going" });
+  done.style.width = pr.total ? (100 * pr.done / pr.total) + "%" : "0";
+  going.style.width = pr.total ? (100 * pr.active / pr.total) + "%" : "0";
+  return h("div", { class: "progress-line", role: "img", "aria-label": `${pr.done} of ${pr.total} tasks done` }, done, going);
 }
 
 function pauseButton(full) {
@@ -588,17 +599,6 @@ function headline() {
   if (p.stage === "locked") { const pr = progress(S); return [`Building: ${pr.done} of ${plural(pr.total, "task")} done`, "Goal: " + p.goal]; }
   if (p.stage === "awaiting_human") return ["The plan is ready for you", "Goal: " + p.goal];
   return [p.stage_label, "Goal: " + p.goal];
-}
-
-function talk() {
-  const [title, sub] = headline();
-  return h("main", { class: "talk", "aria-label": "The conversation" },
-    h("header", { class: "talk-head" },
-      h("div", { class: "status" }, h("strong", { text: title }), sub ? h("span", { text: sub, title: sub }) : null),
-      h("button", { class: "ghost show-plan-btn", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"), h("span", { text: "Plan" })),
-      h("button", { class: "ghost icon-only", type: "button", title: "Search everything that happened", "aria-label": "Search everything that happened", onclick: () => go("#/history") }, icon("search")),
-      h("button", { class: "ghost icon-only only-narrow", type: "button", title: "Team and more", "aria-label": "Team and more", onclick: () => go("#/team") }, icon("team"))),
-    feedView(), asksView(), composer());
 }
 
 /* ---------------------------------------------------------------- the conversation */
@@ -733,7 +733,7 @@ function feedView() {
   const events = allEvents();
   if (events.length >= 80 && !cache.olderDone) inner.append(h("div", { class: "earlier" },
     h("button", { class: "ghost small", type: "button", onclick: e => loadEarlier(e.currentTarget) }, "Show earlier messages")));
-  if (!S.plan) inner.append(introCard());
+  if (!S.plan && !(S.councils || []).length) inner.append(introCard());
   let day = "", cur = null;
   events.forEach(e => {
     const m = say(e);
@@ -785,13 +785,15 @@ function liveCard(x) {
 }
 
 function introCard() {
-  const steps = [
-    ["Your AIs talk here", "Every plan, change, test and check shows up in this conversation as it happens."],
-    ["Decisions wait above the box", "When something needs you, it's pinned just above where you type, with the buttons that settle it."],
-    ["You set the goal", "Type what you want built in the box below. Nothing is built before you approve their plan."],
-  ];
-  return h("section", { class: "intro" }, h("h2", { text: "How this room works" }),
-    h("ol", null, steps.map(([a, b]) => h("li", null, h("strong", { text: a }), h("span", { text: b })))));
+  const ideas = [["goal", "Add a dark mode switch to the settings page, with tests."],
+    ["ask", "What is the riskiest part of this code, and why?"], ["goal", "Find and fix the slowest test in this project."]];
+  return h("section", { class: "empty" },
+    h("div", { class: "empty-faces", "aria-hidden": "true" }, S.seats.map(x => avatar(x.handle, "lg", true))),
+    h("h1", { text: S.seats.length ? "Your AIs are at the table" : "Bring your AIs to the table" }),
+    h("p", { text: S.seats.length ? "Give them something to build, or ask them a question. They plan, build and check each other's work here, and you see every step." : "Add two or more AIs, ideally from different companies, so they catch each other's mistakes." }),
+    S.seats.length ? h("div", { class: "ideas" }, ideas.map(([mode, text]) => h("button", { type: "button", class: "idea",
+      onclick: () => { ui.compose = mode; render(); const el = APP.querySelector("#composer-text"); if (el) { el.value = text; autosize(el); el.focus(); } } },
+      icon(mode === "ask" ? "ask" : "send", "sm"), text))) : null);
 }
 
 /* ---------------------------------------------------------------- asking the table */
@@ -1040,61 +1042,27 @@ function composer() {
     h("div", { class: "seg", role: "group", "aria-label": live ? "What to send" : "How they work" },
       kinds.map(([v, label, tip, on, fn]) => h("button", { type: "button", "aria-pressed": String(on), title: tip, class: v === "ask" ? "ask-seg" : null, onclick: fn },
         v === "ask" ? icon("ask", "sm") : null, label))),
-    mode === "goal" ? [h("span", { class: "checking" }, h("span", { class: "faint", text: "Checking:" }),
+    mode === "goal" ? h("button", { type: "button", class: "ghost small opts", "aria-expanded": String(!!ui.showOpts), onclick: () => { ui.showOpts = !ui.showOpts; render(); } },
+      `${CHECKING[level]} checking · ${ui.autoLock ? "starts by itself" : "you approve first"}`, icon("chevron", "sm")) : null);
+  const opts = mode === "goal" && ui.showOpts ? h("div", { class: "opts-row" },
+    h("span", { class: "checking" }, h("span", { class: "faint", text: "Checking" }),
       h("div", { class: "seg", role: "group", "aria-label": "How carefully they check each other's work" },
         ["low", "mid", "high"].map(v => h("button", { type: "button", "aria-pressed": String(v === level), title: CHECKING_TEXT[v], onclick: () => { ui.level = v; render(); } }, CHECKING[v])))),
-      h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
-        h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" }))] : null);
+    h("label", { class: "check small-check", title: "The test commands in the plan run on your computer without you reading them first" },
+      h("input", { type: "checkbox", checked: !!ui.autoLock, onchange: e => { ui.autoLock = e.target.checked; render(); } }), h("span", { text: "Start without asking me" }))) : null;
   const who = mode === "ask" ? h("div", { class: "askers" },
     h("span", { class: "faint", text: (S.can_ask || []).length ? "Who answers:" : "Only AIs in Claude Code, Codex or opencode can answer here." }),
     (S.can_ask || []).map(hd => h("button", { type: "button", class: "chip", "aria-pressed": String(!ui.askSkip[hd]), title: prettyModel((seatOf(hd) || {}).model),
       onclick: () => { if (ui.askSkip[hd]) delete ui.askSkip[hd]; else ui.askSkip[hd] = true; render(); } }, avatar(hd, "xs", true), hd)),
     ui.followUp ? h("span", { class: "chip on-follow" }, icon("ask", "sm"), "Following up on " + ui.followUp,
       h("button", { type: "button", class: "chip-x", "aria-label": "Not a follow-up", onclick: () => { ui.followUp = null; render(); } }, icon("x", "sm"))) : null) : null;
-  return h("footer", { class: "composer" + (mode === "ask" ? " asking" : "") }, h("div", { class: "composer-inner" }, modes, who,
+  return h("footer", { class: "composer" + (mode === "ask" ? " asking" : "") }, h("div", { class: "composer-inner" }, modes, opts, who,
     h("div", { class: "box" }, ta, sendBtn),
     h("p", { class: "hint", text: M.hint + (mode === "goal" ? (ui.autoLock ? " Work starts without asking you: you won't read the test commands first." : " Nothing is built before you approve it.")
       : " Enter sends; Shift+Enter starts a new line.") })));
 }
 
 /* ---------------------------------------------------------------- the plan, on the right */
-
-function planSide() {
-  const p = S.plan;
-  const kids = [];
-  if (!isLivePlan(p)) {
-    kids.push(h("div", { class: "stack tight" }, h("h2", { text: "How it goes" }), journeySteps()));
-    if (p) kids.push(h("p", { class: "faint", text: `Last goal (${p.stage === "done" ? "finished" : "cancelled"}): ${fit(p.goal, 160)}` }));
-  } else {
-    kids.push(h("div", { class: "stack tight" }, h("h2", { text: p.mode === "quick" ? "The goal (just do it)" : "The goal" }), longText(p.goal, "goal-side", "goal", 220)));
-    if (p.stage !== "locked") kids.push(h("div", { class: "stack tight" }, h("h2", { text: "Planning" }), planSteps(p),
-      h("button", { class: p.stage === "awaiting_human" ? "you" : "", type: "button", onclick: () => go("#/plan") }, icon("plan", "sm"),
-        p.stage === "awaiting_human" ? "Read and approve the plan" : "Read their plans")));
-    else kids.push(progressBlock(), taskGroups(6));
-  }
-  const found = S.tasks.filter(t => t.status === "backlog").length;
-  if (found) kids.push(h("button", { class: "small", type: "button", onclick: () => go("#/found") }, `Work your AIs found (${found})`));
-  kids.push(h("nav", { class: "side-links", "aria-label": "More" },
-    [["council", "ask", "Questions"], ["usage", "usage", "Usage"], ["notes", "notes", "Notes"], ["history", "history", "History"], ["alerts", "alert", "Problems"]].map(([r, ic, label]) =>
-      h("button", { class: "ghost small", type: "button", onclick: () => go("#/" + r) }, icon(ic, "sm"), label + (r === "alerts" && S.alerts.length ? ` (${S.alerts.length})` : "")))));
-  return h("aside", { class: "plan-side", "aria-label": "The plan" }, kids);
-}
-
-function journeySteps() {
-  const seats = S.seats, p = S.plan;
-  const started = seats.length && seats.filter(x => x.status === "active").every(x => running(x) || x.active || x.live);
-  const live = isLivePlan(p);
-  const steps = [
-    ["Choose your AIs", "Two or more, from different companies, so they catch each other's mistakes.", seats.length > 0],
-    ["Start them", "Run them in the background, or open each one in its own app.", !!started],
-    ["Give them a goal", "In the box at the bottom of the conversation.", !!live],
-    ["Approve their plan", "Nothing is built before you say yes.", !!(live && p.stage === "locked")],
-    ["They build and check", "Every task is tested, checked by another AI, then merged.", false],
-  ];
-  const at = steps.findIndex(x => !x[2]);
-  return h("ol", { class: "steps" }, steps.map(([a, b, done], i) => h("li", { class: done ? "done" : i === at ? "now" : "", "aria-current": i === at ? "step" : null },
-    h("span", { class: "tick", "aria-hidden": "true" }, done ? icon("check", "sm") : null), h("div", null, h("strong", { text: a }), h("small", { text: b })))));
-}
 
 function stageNote(p, id) {
   const people = p.people;
@@ -1838,18 +1806,26 @@ PAGES.add = st => ({ title: "Add an AI", wide: true, body: [
 
 /* ---------------------------------------------------------------- the team, and everything else on small screens */
 
-PAGES.team = st => ({ title: "Your team", body: [
-  st.seats.length ? h("ul", { class: "list" }, st.seats.map(x => h("li", { class: "row" }, avatar(x.handle),
-    h("div", { class: "grow" }, h("strong", { text: x.handle }), " ", h("span", { class: "faint", text: `${prettyModel(x.model)} · ${x.app_label}` }), h("p", { class: needsStart(x) ? "you-text" : "muted", text: seatPhrase(x) })),
-    needsStart(x) ? h("button", { class: "go small", type: "button", onclick: e => startSeat(x, e.currentTarget) }, startLabel(x)) : null,
-    h("button", { class: "small", type: "button", onclick: () => go("#/ai/" + x.handle) }, "Open"))))
-    : h("p", { class: "muted", text: "Nobody yet. Add two or more AIs, ideally from different companies." }),
-  h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: () => go("#/add") }, icon("plus", "sm"), "Add an AI"), pauseButton(true)),
-  h("details", { class: "section", "data-k": "connect" }, h("summary", null, icon("chevron", "sm"), "Connect apps you open yourself"), connectPanel(st)),
-  sec("More", h("ul", { class: "tasklist" }, [["plan", "plan", "The plan"], ["alerts", "alert", "Problems and votes"], ["usage", "usage", "Usage and limits"], ["notes", "notes", "Notes for the AIs"],
-    ["history", "history", "Everything that happened"], ["settings", "settings", "Settings"], ["help", "help", "Help"], ["switch", "folder", "Open another project"]].map(([r, ic, label]) =>
-    h("li", null, h("button", { type: "button", onclick: () => go("#/" + r) }, icon(ic, "sm"), h("span", { class: "t" }, h("strong", { text: label })), icon("chevron", "sm"))))),
-    h("div", { class: "row" }, themeButton(true), h("span", { class: "faint", text: "Roundtable v" + st.project.version })))] });
+PAGES.team = st => {
+  const p = st.plan;
+  const links = [["council", "ask", "Questions to the table", (st.councils || []).length ? String(st.councils.length) : ""], ["alerts", "alert", "Problems and votes", st.alerts.length ? String(st.alerts.length) : ""],
+    ["found", "plus", "Work your AIs found", String(st.tasks.filter(t => t.status === "backlog").length || "")], ["usage", "usage", "Usage and limits", ""], ["notes", "notes", "Notes for the AIs", ""],
+    ["history", "history", "Everything that happened", ""], ["settings", "settings", "Settings", ""], ["help", "help", "Help", ""], ["switch", "folder", "Open another project", ""]];
+  return { title: st.project.name, body: [
+    sec("The team", st.seats.length ? h("ul", { class: "people plain" }, st.seats.map(x => h("li", null, h("button", { type: "button", class: "person", onclick: () => go("#/ai/" + x.handle) },
+      avatar(x.handle), h("span", { class: "grow" }, h("strong", { text: x.handle }), h("span", { class: needsStart(x) ? "you-text" : "faint", text: seatPhrase(x) })),
+      h("span", { class: "faint hide-narrow", text: prettyModel(x.model) }), icon("chevron", "sm")))))
+      : h("p", { class: "muted", text: "Nobody yet. Add two or more AIs, ideally from different companies." }),
+      h("div", { class: "row" }, h("button", { class: "go", type: "button", onclick: () => go("#/add") }, icon("plus", "sm"), "Add an AI"), pauseButton(true))),
+    isLivePlan(p) ? sec("The plan", h("p", { class: "goal-line", text: fit(p.goal, 200) }),
+      p.stage === "locked" ? [progressBlock(), taskGroups(4)] : planSteps(p),
+      h("div", { class: "row" }, h("button", { type: "button", class: p.stage === "awaiting_human" ? "you" : "", onclick: () => go("#/plan") }, icon("plan", "sm"), p.stage === "awaiting_human" ? "Read and approve the plan" : "Open the plan")))
+      : p ? sec("The plan", h("p", { class: "faint", text: `Last goal (${p.stage === "done" ? "finished" : "cancelled"}): ${fit(p.goal, 200)}` })) : null,
+    sec(null, h("ul", { class: "menu plain" }, links.map(([r, ic, label, badge]) => h("li", null, h("button", { type: "button", onclick: () => go("#/" + r) },
+      icon(ic, "sm"), h("span", { class: "grow", text: label }), badge ? h("span", { class: "count", text: badge }) : null, icon("chevron", "sm")))))),
+    h("details", { class: "section", "data-k": "connect" }, h("summary", null, icon("chevron", "sm"), "Connect apps you open yourself"), connectPanel(st)),
+    h("div", { class: "row spread" }, themeButton(true), h("span", { class: "faint", text: "Roundtable " + st.project.version }))] };
+};
 
 function connectPanel(st) {
   const c = st.project.connected;

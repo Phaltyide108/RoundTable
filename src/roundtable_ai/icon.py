@@ -10,16 +10,16 @@ from __future__ import annotations
 import struct
 import zlib
 
-BG = (0x1D, 0x46, 0x39)
-TABLE = (0x2A, 0x5B, 0x4B)
-RIM = (0xC9, 0x9A, 0x3F)
-SEAT = (0xE9, 0xF1, 0xEC)
+BG = (0x3E, 0x6A, 0x5B)
+TABLE = (0x55, 0x7F, 0x70)
+RIM = (0xE9, 0xDF, 0xC9)
+SEAT = (0xF5, 0xF3, 0xEE)
 SEATS = ((16, 5.6), (16, 26.4), (4.8, 16), (27.2, 16))
 
 
 def _color_at(x: float, y: float) -> tuple[int, int, int] | None:
     """Colour of the 32x32 picture at (x, y), or None outside it."""
-    r = 7.0
+    r = 8.0
     cx = min(max(x, r), 32 - r)
     cy = min(max(y, r), 32 - r)
     if (x - cx) ** 2 + (y - cy) ** 2 > r * r or not (0 <= x <= 32 and 0 <= y <= 32):
