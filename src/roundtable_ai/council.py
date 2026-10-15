@@ -28,6 +28,7 @@ import random
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -240,6 +241,8 @@ def command(row, prompt: str, cwd: Path) -> tuple[list[str], dict[str, str]]:
     app, model = row["app"], row["model"]
     effort = launch._effort(row)
     offline = os.environ.get("RT_COUNCIL_OFFLINE") == "1"      # benchmarks of pure reasoning: no tools at all
+    if offline:
+        cwd = Path(tempfile.mkdtemp(prefix="rt-offline-"))     # an empty folder: nothing to read, the same for every app
     if app == "claude-code":
         cmd = [launch._exe("claude"), "-p", prompt, "--output-format", "stream-json", "--verbose", "--model", model]
         if effort:
@@ -253,6 +256,11 @@ def command(row, prompt: str, cwd: Path) -> tuple[list[str], dict[str, str]]:
         cmd = [launch._exe("codex"), "exec", "--json", "-m", model, "-s", "read-only", "-C", str(cwd), "--skip-git-repo-check"]
         if effort:
             cmd += ["-c", f"model_reasoning_effort={toml_value(effort)}"]
+        if offline:
+            # as for Claude: no shell (so no python), no browser, no web search, no MCP servers
+            for feature in ("shell_tool", "browser_use", "computer_use", "apps", "in_app_browser"):
+                cmd += ["--disable", feature]
+            cmd += ["-c", 'web_search="disabled"', "-c", "mcp_servers={}"]
         return cmd + [prompt], {}
     if app == "opencode":
         cmd = [launch._exe("opencode"), "run", "--format", "json", "--dir", str(cwd), "-m", model]

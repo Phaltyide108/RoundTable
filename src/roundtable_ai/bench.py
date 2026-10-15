@@ -290,8 +290,9 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
         row = {"handle": _handle_for(m, set()), "app": m.app, "model": m.model, "effort": m.effort}
         res = council.run_member(folder, row, prompt, folder, what="answering the quiz", minutes=int(minutes))
         text, tokens = res["text"], res["tokens"]
-        if res["error"]:
-            log(f"  {res['error']}")
+        failure = res["error"] or ""
+        if failure:
+            log(f"  {failure}")
     else:
         home, _ = project.init_project(folder, name=f"bench-{task}")
         taken: set[str] = set()
@@ -315,6 +316,8 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
             if p["stage"] == "answer":
                 # each member's own answer, written before it saw the others': did combining beat them?
                 members[p["seat"]] = score_quiz(task, p["text"] or "")
+                if p.get("error"):
+                    members[p["seat"]]["error"] = p["error"]
         os.environ.pop("RT_COUNCIL_OFFLINE", None)
         (folder / "answers.txt").write_text(text or "", encoding="utf-8")
         seconds = time.time() - started
@@ -324,7 +327,10 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
     (folder / "answers.txt").write_text(text or "", encoding="utf-8")
     seconds = time.time() - started
     log(f"  answered in {seconds / 60:.1f} min")
-    return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text}
+    out = {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": "timed out" in failure.lower(), "quiz_text": text}
+    if failure:
+        out["error"] = failure          # a usage limit or a crash is reported as such, not as wrong answers
+    return out
 
 
 # ---------------------------------------------------------------- contenders
@@ -493,7 +499,9 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
     out.mkdir(parents=True, exist_ok=True)
     if meta(task)["generated"]:
         seed = set_seed(task, seed)
-        (out / "questions.json").write_text(json.dumps(quiz_questions(task), indent=2, ensure_ascii=False), encoding="utf-8")
+        # the problems only: the right answers are written into the report after every contender has finished
+        (out / "questions.json").write_text(json.dumps([{"q": q["q"], "family": q.get("family", "")} for q in quiz_questions(task)],
+                                                       indent=2, ensure_ascii=False), encoding="utf-8")
         log(f"problems made from seed {seed} (--seed {seed} repeats them); they are in questions.json")
     else:
         seed = None
@@ -563,7 +571,7 @@ def markdown(report: dict) -> str:
             mem = r["member_scores"]
             best = max((m["passed"] for m in mem.values()), default=0)
             lines.append(f"**{r['contender']}**: the final answer got {r['passed']} of {r['total']}; each member's own answer, before seeing the others': "
-                         + ", ".join(f"{k} {v['passed']}" for k, v in mem.items())
+                         + ", ".join(f"{k} {v['passed']}" + (f" (could not run: {v['error']})" if v.get("error") else "") for k, v in mem.items())
                          + (f". Combining gained {r['passed'] - best} over the best member." if r["passed"] > best
                             else f". Combining lost {best - r['passed']} against the best member." if r["passed"] < best else ". The same as the best member."))
             lines.append("")

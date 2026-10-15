@@ -393,3 +393,10 @@ def test_offline_council_runs_use_no_tools(monkeypatch, tmp_path):
     _cmd, env = council.command({"handle": "o", "app": "opencode", "model": "opencode/big-pickle", "effort": None}, "q", tmp_path)
     assert json.loads(env["OPENCODE_PERMISSION"]) == {"edit": "deny", "webfetch": "deny", "bash": "deny"}
     assert "no tools" in council._project_line(tmp_path)
+    # Codex too: no shell (so no python), no browser, no web search, no MCP, and an empty folder instead of the project
+    cmd, _env = council.command({"handle": "x", "app": "codex-cli", "model": "gpt-6-luna", "effort": "low"}, "q", tmp_path)
+    disabled = {cmd[i + 1] for i, a in enumerate(cmd) if a == "--disable"}
+    assert {"shell_tool", "browser_use", "computer_use", "apps", "in_app_browser"} <= disabled
+    assert 'web_search="disabled"' in cmd and "mcp_servers={}" in cmd
+    folder = Path(cmd[cmd.index("-C") + 1])
+    assert folder != tmp_path and folder.is_dir() and not any(folder.iterdir())

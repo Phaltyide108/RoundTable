@@ -125,3 +125,19 @@ def test_report_scores_each_member_inside_the_team_question_by_question():
     # answers written as "Problem 3: 55" or "**4.** 12" count too
     got = bench.score_quiz("fresh", "Problem 1: 55\n**2.** 7\nQ3) 9")["answers"]
     assert got["1"] == "55" and got["2"] == "7" and got["3"] == "9"
+
+
+def test_problem_file_written_during_a_run_holds_no_answers(tmp_path, monkeypatch):
+    # contenders work in folders next to it: the right answers must not be readable before scoring
+    monkeypatch.setattr(bench, "run_quiz", lambda *a, **k: {"seconds": 0, "tokens": 0, "quiz_text": ""})
+    seen = {}
+    real = bench.score_quiz
+
+    def spy(task, text):
+        seen["file"] = (tmp_path / "questions.json").read_text(encoding="utf-8")
+        return real(task, text)
+    monkeypatch.setattr(bench, "score_quiz", spy)
+    bench.run("fresh", [bench.Contender("solo", [bench.parse_member("claude:claude-haiku-5-5:low")])], tmp_path, seed=9, log=lambda *_: None)
+    import json
+    assert all(set(q) == {"q", "family"} for q in json.loads(seen["file"]))
+    assert json.loads((tmp_path / "report.json").read_text())["expected"]["1"]
