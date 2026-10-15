@@ -331,6 +331,10 @@ def hand_over(ctx, seat: str, why: str) -> tuple[list[str], list[str]]:
                 ctx.db.execute("UPDATE tasks SET status = 'ready', owner = NULL, updated_at = ? WHERE id = ?", (util.now(), t["id"]))
                 leases.release_task(ctx, t["id"])
                 moved_tasks.append(t["id"])
+            # tasks the plan gave it but it had not started yet: free them too
+            for t in ctx.db.all("SELECT id FROM tasks WHERE owner = ? AND status IN ('ready','open')", (seat,)):
+                ctx.db.execute("UPDATE tasks SET owner = NULL, updated_at = ? WHERE id = ?", (util.now(), t["id"]))
+                moved_tasks.append(t["id"])
         for a in ctx.db.all("SELECT * FROM assignments WHERE kind = 'review' AND seat = ? AND status = 'open'", (seat,)):
             t = ctx.db.one("SELECT * FROM tasks WHERE id = ?", (a["target"],))
             if t is None:

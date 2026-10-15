@@ -284,7 +284,8 @@ def test_an_ai_out_of_usage_hands_its_task_over_with_the_work(rt, fake_apps, mon
 
     team(rt)
     rt.human("plan.goal", goal="g", mode="quick", planners="opus")
-    rt.seat("opus", "plan.propose", text="t", tasks=[{"ref": "1", "title": "Greet", "files": ["greet_opus.py"], "proof": ["python -c 'pass'"], "owner": "opus"}])
+    rt.seat("opus", "plan.propose", text="t", tasks=[{"ref": "1", "title": "Greet", "files": ["greet_opus.py"], "proof": ["python -c 'pass'"], "owner": "opus"},
+                                                     {"ref": "2", "title": "Later", "files": ["later.py"], "proof": ["python -c 'pass'"], "owner": "opus", "depends_on": ["1"]}])
     rt.human("plan.lock")
     rt.seat("opus", "sync")
     rt.seat("opus", "task.claim", task="T1")
@@ -298,6 +299,7 @@ def test_an_ai_out_of_usage_hands_its_task_over_with_the_work(rt, fake_apps, mon
     assert st["state"] == "stopped" and st["limited_until"] > 0 and "session limit" in st["limit_text"]
     t = rt.q("SELECT status, owner FROM tasks WHERE id = 'T1'")[0]
     assert t == {"status": "ready", "owner": None}
+    assert rt.q("SELECT owner FROM tasks WHERE id = 'T2'")[0]["owner"] is None        # its planned task is freed too
     assert any(e["type"] == "task.handoff" for e in rt.q("SELECT type FROM events"))
     ctx = rt.ctx()
     try:
