@@ -243,7 +243,8 @@ def quiz_prompt(task: str) -> str:
     qs = quiz_questions(task)
     if meta(task)["working"]:
         return (f"Solve all {len(qs)} problems below. Each answer is an integer from 0 to 999. Use no tools: no code, no web search, no files; "
-                "reason it out yourself, as carefully as you can. Show as much working as you need, then finish with a section that starts "
+                "reason it out yourself, as carefully as you can. Answer every problem: when you are unsure, give your best answer anyway "
+                "(a missing answer scores the same as a wrong one). Show as much working as you need, then finish with a section that starts "
                 "with the line FINAL ANSWERS followed by exactly one line per problem: `<number>: <integer>`.\n\n"
                 + "\n\n".join(f"Problem {i}. {q['q']}" for i, q in enumerate(qs, 1)))
     return (f"Answer all {len(qs)} questions below. Think carefully, but write no working: reply with exactly one line per question, "
@@ -271,7 +272,8 @@ def score_quiz(task: str, text: str) -> dict[str, Any]:
     for i, q in enumerate(qs, 1):
         if _norm_answer(got.get(i, "")) not in [_norm_answer(a) for a in q["a"]]:
             failed.append(f"Q{i} (answered {got.get(i, '-')!r}, expected {q['a'][0]!r})")
-    return {"passed": len(qs) - len(failed), "total": len(qs), "failed": failed}
+    return {"passed": len(qs) - len(failed), "total": len(qs), "failed": failed,
+            "answers": {str(i): got.get(i, "") for i in range(1, len(qs) + 1)}}
 
 
 def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, log) -> dict[str, Any]:
@@ -306,9 +308,18 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
             os.environ.pop("RT_COUNCIL_INLINE", None)
         d = dispatch.call("council.show", {"id": cid}, home=home, as_human=True, client="bench").data["council"]
         text, tokens = d["final"], d["tokens"]
+        members = {}
         for p in d["parts"]:
             if p["stage"] == "answer" and p["text"]:
                 (folder / f"answer-{p['seat']}.txt").write_text(p["text"], encoding="utf-8")
+            if p["stage"] == "answer":
+                # each member's own answer, written before it saw the others': did combining beat them?
+                members[p["seat"]] = score_quiz(task, p["text"] or "")
+        os.environ.pop("RT_COUNCIL_OFFLINE", None)
+        (folder / "answers.txt").write_text(text or "", encoding="utf-8")
+        seconds = time.time() - started
+        log(f"  answered in {seconds / 60:.1f} min; inside the team: " + ", ".join(f"{k} alone {v['passed']}" for k, v in members.items()))
+        return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text, "members": members}
     os.environ.pop("RT_COUNCIL_OFFLINE", None)
     (folder / "answers.txt").write_text(text or "", encoding="utf-8")
     seconds = time.time() - started
@@ -510,6 +521,8 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
               "at": time.strftime("%Y-%m-%d %H:%M")}
     if seed is not None:
         report["seed"] = seed
+    if meta(task)["kind"] == "quiz":
+        report["expected"] = {str(i): q["a"] for i, q in enumerate(quiz_questions(task), 1)}
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (out / "report.md").write_text(markdown(report), encoding="utf-8")
     return report
@@ -537,6 +550,34 @@ def markdown(report: dict) -> str:
         if r.get("error"):
             lines.append(f"**{r['contender']}** could not run: {r['error']}")
             lines.append("")
+    quiz = [r for r in report["results"] if r.get("answers")]
+    if quiz:
+        lines += ["## Question by question", ""]
+        cols = []                                  # (label, answers)
+        for r in quiz:
+            for seat, m in (r.get("members") or {}).items():
+                cols.append((f"{seat} inside the team", m.get("answers") or {}))
+            cols.append((r["contender"], r["answers"]))
+        teams = [r for r in quiz if r.get("members")]
+        for r in teams:
+            mem = r["members"]
+            best = max((m["passed"] for m in mem.values()), default=0)
+            lines.append(f"**{r['contender']}**: the final answer got {r['passed']} of {r['total']}; each member's own answer, before seeing the others': "
+                         + ", ".join(f"{k} {v['passed']}" for k, v in mem.items())
+                         + (f". Combining gained {r['passed'] - best} over the best member." if r["passed"] > best
+                            else f". Combining lost {best - r['passed']} against the best member." if r["passed"] < best else ". The same as the best member."))
+            lines.append("")
+        expected = report.get("expected") or {}
+        lines.append("| # | Right answer | " + " | ".join(c[0] for c in cols) + " |")
+        lines.append("| --- | --- | " + " | ".join("---" for _ in cols) + " |")
+        for i in sorted(expected, key=int):
+            right = expected[i]
+            cells = []
+            for _, ans in cols:
+                a = ans.get(i, "")
+                cells.append((a or "–") + (" ✓" if _norm_answer(a) in [_norm_answer(x) for x in right] else " ✗"))
+            lines.append(f"| {i} | {right[0]} | " + " | ".join(cells) + " |")
+        lines.append("")
     lines.append("Each contender's work is kept in its folder next to this report.")
     return "\n".join(lines) + "\n"
 

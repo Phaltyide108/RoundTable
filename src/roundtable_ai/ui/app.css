@@ -71,7 +71,13 @@
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15.5px/1.6 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-::selection { background: var(--accent-soft); color: var(--ink); }
+/* selected text: a clear blue in every theme (the pale accent was invisible on white) */
+::selection { background: var(--select); color: var(--ink); }
+:root, :root[data-theme="snow"] { --select: #b3d4fc; }
+:root[data-theme="paper"] { --select: #b9d3f2; }
+:root[data-theme="midnight"] { --select: rgba(88, 150, 255, .45); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) { --select: rgba(88, 150, 255, .45); } }
+.toast ::selection, .go ::selection { background: rgba(255, 255, 255, .35); color: inherit; }
 .sprite { display: none; }
 a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

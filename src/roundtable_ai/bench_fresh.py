@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 import random
 from functools import lru_cache
-from itertools import combinations, permutations
+from itertools import combinations
 from typing import Callable
 
 
@@ -62,6 +62,78 @@ def _digit_sum_upto(n: int, target: int) -> int:
     return go(0, target, True)
 
 
+def _phi(n: int) -> int:
+    out = n
+    for p in _factor(n):
+        out -= out // p
+    return out
+
+
+def _divisors(n: int) -> list[int]:
+    ds = [1]
+    for p, e in _factor(n).items():
+        ds = [d * p ** k for d in ds for k in range(e + 1)]
+    return ds
+
+
+def _tower_mod(tower: list[int], m: int) -> int:
+    """tower[0]^(tower[1]^(...)) mod m, by the generalised Euler theorem (exponent reduced mod phi, kept large)."""
+    if m == 1:
+        return 0
+    if len(tower) == 1:
+        return tower[0] % m
+    rest = tower[1:]
+    big = 1
+    for x in reversed(rest):                     # is the exponent at least 64? (then the reduction is exact)
+        big = x ** big if big < 7 else 10 ** 9
+        if big >= 64:
+            break
+    if big < 64:
+        e = 1
+        for x in reversed(rest):
+            e = x ** e
+        return pow(tower[0], e, m)
+    ph = _phi(m)
+    return pow(tower[0], _tower_mod(rest, ph) + ph, m)
+
+
+def _ring_avoiding(n: int, pairs) -> int:
+    """Seatings of 1..n around a table (rotations equal) with no forbidden pair side by side, by inclusion-exclusion:
+    forcing a set of pairs together glues people into blocks; it works only if the glued pairs form paths."""
+    total = 0
+    for k in range(len(pairs) + 1):
+        for chosen in combinations(pairs, k):
+            deg: dict[int, int] = {}
+            parent = {v: v for v in range(1, n + 1)}
+
+            def find(v):
+                while parent[v] != v:
+                    parent[v] = parent[parent[v]]
+                    v = parent[v]
+                return v
+            ok, cycle = True, False
+            for a, b in chosen:
+                deg[a], deg[b] = deg.get(a, 0) + 1, deg.get(b, 0) + 1
+                ra, rb = find(a), find(b)
+                if deg[a] > 2 or deg[b] > 2:
+                    ok = False
+                    break
+                if ra == rb:
+                    cycle = True                       # a closed ring: possible only if it is everyone, the last pair chosen
+                    continue
+                parent[ra] = rb
+            if not ok:
+                continue
+            if cycle:
+                if k == n and len(deg) == n and len({find(v) for v in deg}) == 1 and n >= 3:
+                    total += (-1) ** k * 2             # the table is exactly that ring, either way round
+                continue
+            paths = len({find(v) for v in deg})       # blocks of two or more people, each can face either way
+            blocks = n - k
+            total += (-1) ** k * math.factorial(blocks - 1) * 2 ** paths
+    return total
+
+
 # ---------------------------------------------------------------- the families: each returns (question, answer)
 
 def inclusion_exclusion(r: random.Random):
@@ -78,9 +150,9 @@ def inclusion_exclusion(r: random.Random):
 
 
 def lattice_paths(r: random.Random):
-    m, n = r.randint(13, 16), r.randint(11, 14)
+    m, n = r.randint(16, 20), r.randint(14, 18)
     blocked = set()
-    while len(blocked) < 3:
+    while len(blocked) < 5:
         blocked.add((r.randint(1, m - 1), r.randint(1, n - 1)))
     grid = [[0] * (n + 1) for _ in range(m + 1)]
     for x in range(m + 1):
@@ -95,9 +167,9 @@ def lattice_paths(r: random.Random):
 
 def power_tower(r: random.Random):
     m = r.choice([x for x in range(300, 1000) if len(_factor(x)) >= 2])
-    a = r.choice([x for x in range(3, 60) if math.gcd(x, m) == 1])
-    b, c = r.randint(3, 13), r.randint(20, 60)
-    return f"What is the remainder when {a}^({b}^{c}) is divided by {m}? (The exponent is {b} raised to the power {c}.)", pow(a, b ** c, m)
+    a, b, c, d = r.randint(3, 40), r.randint(3, 12), r.randint(3, 9), r.randint(5, 30)
+    return (f"What is the remainder when {a}^({b}^({c}^{d})) is divided by {m}? (A tower of powers: {c}^{d} is the exponent of {b}, "
+            f"and that whole number is the exponent of {a}.)"), _tower_mod([a, b, c, d], m)
 
 
 def four_part_partitions(r: random.Random):
@@ -124,32 +196,39 @@ def dice_sum(r: random.Random):
     return f"{k} distinguishable dice, each with faces 1 to {s}, are rolled. In how many of the {s}^{k} outcomes is the total exactly {t}? Give the answer modulo 1000.", _dice_count(k, s, t) % 1000
 
 
-def square_divisors(r: random.Random):
-    while True:
-        a, b, c = r.sample([12, 18, 20, 28, 45, 50, 63, 72, 75, 98, 99, 175], 3)
-        i, j, k = r.randint(3, 9), r.randint(2, 8), r.randint(1, 6)
-        f: dict[int, int] = {}
-        for base, e in ((a, i), (b, j), (c, k)):
-            for p, x in _factor(base).items():
-                f[p] = f.get(p, 0) + x * e
-        ans = math.prod(e // 2 + 1 for e in f.values())
-        if 30 < ans < 1000:
-            return f"How many positive divisors of {a}^{i} · {b}^{j} · {c}^{k} are perfect squares?", ans
+def necklaces(r: random.Random):
+    n, c = r.randint(12, 40), r.randint(2, 5)
+    total = sum(_phi(d) * c ** (n // d) for d in range(1, n + 1) if n % d == 0) // n
+    return (f"A necklace has {n} beads in a circle, each one of {c} colours. Two necklaces are the same if one can be rotated into the other "
+            f"(not flipped). How many different necklaces are there? Give the answer modulo 1000."), total % 1000
 
 
 def digit_sum_count(r: random.Random):
     n = r.randint(10 ** 8, 10 ** 9)
-    t = r.randint(30, 50)
-    return f"How many integers k with 1 ≤ k ≤ {n} have digits adding up to exactly {t}? Give the answer modulo 1000.", _digit_sum_upto(n, t) % 1000
+    t = r.randint(25, 45)
+    m = r.choice([7, 11, 13])
+    digits = list(map(int, str(n)))
+
+    @lru_cache(None)
+    def go(i, left, rem, tight):
+        if left < 0:
+            return 0
+        if i == len(digits):
+            return 1 if left == 0 and rem == 0 else 0
+        top = digits[i] if tight else 9
+        return sum(go(i + 1, left - d, (rem * 10 + d) % m, tight and d == top) for d in range(top + 1))
+    return (f"How many integers k with 1 ≤ k ≤ {n} have digits adding up to exactly {t} and are divisible by {m}? "
+            f"Give the answer modulo 1000."), go(0, t, 0, True) % 1000
 
 
 def subset_sums(r: random.Random):
-    n = r.randint(24, 40)
-    m = r.choice([7, 9, 11, 12, 13])
-    ways = [1] + [0] * (m - 1)
+    n, size, m = r.randint(25, 40), r.randint(5, 10), r.choice([7, 9, 11, 13])
+    ways = [[0] * m for _ in range(size + 1)]          # ways[k][s]: subsets of k elements with sum ≡ s
+    ways[0][0] = 1
     for v in range(1, n + 1):
-        ways = [ways[i] + ways[(i - v) % m] for i in range(m)]
-    return f"How many subsets of {{1, 2, ..., {n}}} (the empty set included) have a sum divisible by {m}? Give the answer modulo 1000.", ways[0] % 1000
+        for k in range(size, 0, -1):
+            ways[k] = [ways[k][i] + ways[k - 1][(i - v) % m] for i in range(m)]
+    return f"How many {size}-element subsets of {{1, 2, ..., {n}}} have a sum divisible by {m}? Give the answer modulo 1000.", ways[size][0] % 1000
 
 
 def pick_triangle(r: random.Random):
@@ -165,13 +244,14 @@ def pick_triangle(r: random.Random):
                 f"Give the answer modulo 1000."), inside % 1000
 
 
-def egyptian_pairs(r: random.Random):
-    while True:
-        n = 2 ** r.randint(2, 7) * 3 ** r.randint(1, 4) * r.choice([5, 25, 7, 35, 11, 55, 77])
-        d = math.prod(2 * e + 1 for e in _factor(n).values())
-        ans = (d + 1) // 2
-        if 100 < ans < 1000:
-            return f"How many pairs (x, y) of positive integers with x ≤ y satisfy 1/x + 1/y = 1/{n}?", ans
+def bounded_sums(r: random.Random):
+    k, cap = r.randint(5, 8), r.randint(6, 15)
+    s_ = r.randint(cap * k // 3, cap * k * 2 // 3)
+    ways = [1] + [0] * s_
+    for _ in range(k):
+        ways = [sum(ways[v - x] for x in range(0, min(cap, v) + 1)) for v in range(s_ + 1)]
+    return (f"How many ordered {k}-tuples (x1, ..., x{k}) of integers with 0 ≤ xi ≤ {cap} for every i have x1 + ... + x{k} = {s_}? "
+            f"Give the answer modulo 1000."), ways[s_] % 1000
 
 
 def lucas(r: random.Random):
@@ -215,13 +295,13 @@ def fixed_points(r: random.Random):
     return f"How many permutations of {{1, 2, ..., {n}}} have exactly {k} fixed points? Give the answer modulo 1000.", math.comb(n, k) * d[n - k] % 1000
 
 
-def lcm_triples(r: random.Random):
-    f = {2: r.randint(1, 6), 3: r.randint(1, 4), r.choice([5, 7]): r.randint(1, 3)}
-    if r.random() < .6:
-        f[r.choice([11, 13])] = r.randint(1, 2)
-    L = math.prod(p ** e for p, e in f.items())
-    ans = math.prod((e + 1) ** 3 - e ** 3 for e in f.values())
-    return f"How many ordered triples (a, b, c) of positive integers have least common multiple exactly {L}? Give the answer modulo 1000.", ans % 1000
+def gcd_sum(r: random.Random):
+    while True:
+        n = r.randint(10 ** 5, 10 ** 6)
+        if len(_factor(n)) >= 3:
+            break
+    total = sum(d * _phi(n // d) for d in _divisors(n))
+    return f"Find gcd(1, {n}) + gcd(2, {n}) + ... + gcd({n}, {n}). Give the answer modulo 1000.", total % 1000
 
 
 def quadratic_congruence(r: random.Random):
@@ -254,43 +334,35 @@ def nondecreasing_digits(r: random.Random):
 
 
 def seating(r: random.Random):
-    n = 9
-    pairs = r.sample(list(combinations(range(1, n + 1), 2)), 3)
-    adj = [[False] * (n + 1) for _ in range(n + 1)]
-    for a, b in pairs:
-        adj[a][b] = adj[b][a] = True
-    ans = 0
-    for p in permutations(range(2, n + 1)):
-        ring = (1,) + p
-        if not any(adj[ring[i]][ring[(i + 1) % n]] for i in range(n)):
-            ans += 1
+    n = 12
+    pairs = r.sample(list(combinations(range(1, n + 1), 2)), 5)
     text = ", ".join(f"{a} and {b}" for a, b in pairs)
     return (f"{n} people, numbered 1 to {n}, sit around a round table; seatings that are rotations of each other count as the same, but reflections count as different. "
-            f"None of these pairs may sit next to each other: {text}. How many seatings are possible? Give the answer modulo 1000."), ans % 1000
+            f"None of these pairs may sit next to each other: {text}. How many seatings are possible? Give the answer modulo 1000."), _ring_avoiding(n, pairs) % 1000
 
 
 def recurrence_far(r: random.Random):
-    a1, a2 = r.randint(1, 9), r.randint(1, 9)
-    p, q = r.randint(2, 7), r.randint(1, 5)
-    k = r.randint(10 ** 11, 10 ** 12)
+    a1, a2, a3 = r.randint(1, 9), r.randint(1, 9), r.randint(1, 9)
+    p, q, w = r.randint(1, 5), r.randint(1, 5), r.randint(1, 5)
+    k = r.randint(10 ** 14, 10 ** 15)
 
     def mul(x, y):
-        return [[(x[0][0] * y[0][0] + x[0][1] * y[1][0]) % 1000, (x[0][0] * y[0][1] + x[0][1] * y[1][1]) % 1000],
-                [(x[1][0] * y[0][0] + x[1][1] * y[1][0]) % 1000, (x[1][0] * y[0][1] + x[1][1] * y[1][1]) % 1000]]
-    res, base, e = [[1, 0], [0, 1]], [[p, q], [1, 0]], k - 2
+        return [[sum(x[i][t] * y[t][j] for t in range(3)) % 1000 for j in range(3)] for i in range(3)]
+    res, base, e = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[p, q, w], [1, 0, 0], [0, 1, 0]], k - 3
     while e:
         if e & 1:
             res = mul(res, base)
         base = mul(base, base)
         e >>= 1
-    ans = (res[0][0] * a2 + res[0][1] * a1) % 1000
-    return f"A sequence has a(1) = {a1}, a(2) = {a2} and a(n) = {p}·a(n−1) + {q}·a(n−2) for n ≥ 3. What are the last three digits of a({k}), as a number from 0 to 999?", ans
+    ans = (res[0][0] * a3 + res[0][1] * a2 + res[0][2] * a1) % 1000
+    return (f"A sequence has a(1) = {a1}, a(2) = {a2}, a(3) = {a3} and a(n) = {p}·a(n−1) + {q}·a(n−2) + {w}·a(n−3) for n ≥ 4. "
+            f"What are the last three digits of a({k}), as a number from 0 to 999?"), ans
 
 
 FAMILIES: list[Callable[[random.Random], tuple[str, int]]] = [
-    inclusion_exclusion, lattice_paths, power_tower, four_part_partitions, trailing_zeros_base, dice_sum, square_divisors,
-    digit_sum_count, subset_sums, pick_triangle, egyptian_pairs, lucas, coprime_count, domino_tilings,
-    fixed_points, lcm_triples, quadratic_congruence, nondecreasing_digits, seating, recurrence_far,
+    inclusion_exclusion, lattice_paths, power_tower, four_part_partitions, trailing_zeros_base, dice_sum, necklaces,
+    digit_sum_count, subset_sums, pick_triangle, bounded_sums, lucas, coprime_count, domino_tilings,
+    fixed_points, gcd_sum, quadratic_congruence, nondecreasing_digits, seating, recurrence_far,
 ]
 
 
