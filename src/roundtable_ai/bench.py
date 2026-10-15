@@ -71,12 +71,14 @@ def pretty_model(m: str) -> str:
 
 @dataclass
 class Contender:
-    kind: str                 # solo | team
+    kind: str                 # solo | team | vote (one model answers several times on its own; the most common answer wins)
     members: list[Member]
     result: dict[str, Any] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
+        if self.kind == "vote":
+            return f"{self.members[0].label} × {len(self.members)}, majority vote"
         names = " + ".join(m.label for m in self.members)
         return f"{names} alone" if self.kind == "solo" else f"Team: {names}"
 
@@ -285,6 +287,28 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
     started = time.time()
     if meta(task)["offline"]:
         os.environ["RT_COUNCIL_OFFLINE"] = "1"       # no web search, no code, no files: pure reasoning, the same for everyone
+    if contender.kind == "vote":
+        runs = {}
+        for i, m in enumerate(contender.members, 1):
+            row = {"handle": f"{_handle_for(m, set())}{i}", "app": m.app, "model": m.model, "effort": m.effort}
+            res = council.run_member(folder, row, prompt, folder, what=f"answering the quiz ({i} of {len(contender.members)})", minutes=int(minutes))
+            (folder / f"answer-{row['handle']}.txt").write_text(res["text"] or "", encoding="utf-8")
+            runs[row["handle"]] = res
+            if res["error"]:
+                log(f"  {row['handle']}: {res['error']}")
+        scores = {h: score_quiz(task, r["text"] or "") for h, r in runs.items()}
+        lines = []
+        for i in range(1, len(quiz_questions(task)) + 1):
+            said = [_norm_answer(sc["answers"].get(str(i), "")) for sc in scores.values()]
+            said = [a for a in said if a]
+            lines.append(f"{i}: {max(said, key=said.count) if said else ''}")
+        text = "FINAL ANSWERS\n" + "\n".join(lines)
+        tokens = sum(int(r["tokens"] or 0) for r in runs.values())
+        os.environ.pop("RT_COUNCIL_OFFLINE", None)
+        (folder / "answers.txt").write_text(text, encoding="utf-8")
+        seconds = time.time() - started
+        log(f"  answered in {seconds / 60:.1f} min; each run alone: " + ", ".join(f"{h} {sc['passed']}" for h, sc in scores.items()))
+        return {"seconds": round(seconds, 1), "tokens": tokens, "timed_out": False, "quiz_text": text, "member_scores": scores}
     if contender.kind == "solo":
         m = contender.members[0]
         row = {"handle": _handle_for(m, set()), "app": m.app, "model": m.model, "effort": m.effort}
@@ -507,9 +531,11 @@ def run(task: str, contenders: list[Contender], out: Path, *, minutes: float = 4
         seed = None
     results = []
     for i, c in enumerate(contenders, 1):
-        folder = out / f"{i}-{'solo' if c.kind == 'solo' else 'team'}-{'-'.join(m.model for m in c.members)}"
+        folder = out / f"{i}-{c.kind}-{'-'.join(m.model for m in c.members[:1 if c.kind == 'vote' else None])}"
         log(f"[{i}/{len(contenders)}] {c.label}")
         try:
+            if c.kind == "vote" and meta(task)["kind"] != "quiz":
+                raise RTError(INVALID, "a majority vote needs answers to compare", "use --vote with a quiz task, e.g. --task fresh")
             if meta(task)["kind"] == "quiz":
                 info = run_quiz(task, c, folder, minutes, log)
             else:
@@ -564,7 +590,7 @@ def markdown(report: dict) -> str:
         cols = []                                  # (label, answers)
         for r in quiz:
             for seat, m in (r.get("member_scores") or {}).items():
-                cols.append((f"{seat} inside the team", m.get("answers") or {}))
+                cols.append((f"{seat} inside the team" if r.get("kind") == "team" else f"{seat} (one run)", m.get("answers") or {}))
             cols.append((r["contender"], r["answers"]))
         teams = [r for r in quiz if r.get("member_scores")]
         for r in teams:
@@ -590,10 +616,15 @@ def markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def contenders_from(solo: list[str] | None, team: list[str] | None) -> list[Contender]:
+def contenders_from(solo: list[str] | None, team: list[str] | None, vote: list[str] | None = None) -> list[Contender]:
     out: list[Contender] = []
     for s in solo or []:
         out.append(Contender("solo", [parse_member(s)]))
+    for v in vote or []:
+        spec, _, times = v.rpartition("*") if "*" in v else (v, "", "3")
+        if not times.isdigit() or not 2 <= int(times) <= 9:
+            raise RTError(INVALID, f"can't read {v!r}", "e.g. --vote codex:gpt-6.1-sol:low*3 (2 to 9 runs)")
+        out.append(Contender("vote", [parse_member(spec) for _ in range(int(times))]))
     for t in team or []:
         members = [parse_member(x) for x in t.split(",") if x.strip()]
         if len(members) < 2:
@@ -617,7 +648,7 @@ def main(args) -> int:
         for f in sc["failed"]:
             print(f"  failed: {f}")
         return 0 if sc["passed"] == sc["total"] else 1
-    cs = contenders_from(args.solo, args.team)
+    cs = contenders_from(args.solo, args.team, getattr(args, "vote", None))
     out = Path(args.out or (Path.cwd() / "roundtable-bench" / time.strftime("%Y%m%d-%H%M%S")))
     print(f"benchmark {args.task}: {len(cs)} contenders, up to {args.minutes} min each; work goes to {out}")
     print("this uses your real Claude Code / Codex limits.")

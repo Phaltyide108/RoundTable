@@ -292,6 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--task", default="sheet")
     s.add_argument("--solo", action="append", help="an AI alone: claude, codex, claude:high, codex:gpt-6.1-sol:xhigh (repeatable)")
     s.add_argument("--team", action="append", help="a team, comma separated: claude,codex (repeatable)")
+    s.add_argument("--vote", action="append", help="quiz tasks: one AI answers several times on its own and the most common answer wins, e.g. codex:gpt-6.1-sol:low*3 (repeatable)")
     s.add_argument("--mode", choices=["quick", "full"], default="quick", help="how the team plans (default quick)")
     s.add_argument("--review", choices=["low", "mid", "high"], default="mid", help="how carefully the team checks itself")
     s.add_argument("--minutes", type=float, default=40, help="time limit per contender")

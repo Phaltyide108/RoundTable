@@ -113,7 +113,7 @@ def test_report_scores_each_member_inside_the_team_question_by_question():
     qs = bench.quiz_questions("fresh")
     right = "FINAL ANSWERS\n" + "\n".join(f"{i}: {q['a'][0]}" for i, q in enumerate(qs, 1))
     half = "FINAL ANSWERS\n" + "\n".join(f"{i}: {q['a'][0] if i % 2 else 1000}" for i, q in enumerate(qs, 1))
-    team = dict(bench.score_quiz("fresh", right), contender="Team: a + b", seconds=60, tokens=10,
+    team = dict(bench.score_quiz("fresh", right), contender="Team: a + b", kind="team", seconds=60, tokens=10,
                 member_scores={"a": bench.score_quiz("fresh", half), "b": bench.score_quiz("fresh", "")})
     solo = dict(bench.score_quiz("fresh", half), contender="a alone", seconds=60, tokens=5, members=[{"app": "claude"}])
     report = {"task": "fresh", "minutes_limit": 5, "mode": "quick", "review": "mid", "at": "now", "seed": 3, "results": [solo, team],
@@ -141,3 +141,23 @@ def test_problem_file_written_during_a_run_holds_no_answers(tmp_path, monkeypatc
     import json
     assert all(set(q) == {"q", "family"} for q in json.loads(seen["file"]))
     assert json.loads((tmp_path / "report.json").read_text())["expected"]["1"]
+
+
+def test_majority_vote_takes_the_most_common_answer_per_problem(tmp_path, monkeypatch):
+    from roundtable_ai import council
+    bench.set_seed("fresh", 5)
+    qs = bench.quiz_questions("fresh")
+    right = [q["a"][0] for q in qs]
+    wrong = lambda i: str((int(right[i]) + 1) % 1000)
+    # three runs: each wrong on a different third of the problems, so the vote gets every one right
+    texts = ["FINAL ANSWERS\n" + "\n".join(f"{i + 1}: {wrong(i) if i % 3 == k else right[i]}" for i in range(len(qs))) for k in range(3)]
+    calls = iter(texts)
+    monkeypatch.setattr(council, "run_member", lambda *a, **k: {"text": next(calls), "tokens": 100, "error": None})
+    cs = bench.contenders_from(None, None, ["codex:gpt-6.1-sol:low*3"])
+    assert cs[0].kind == "vote" and len(cs[0].members) == 3 and "majority vote" in cs[0].label
+    report = bench.run("fresh", cs, tmp_path, seed=5, log=lambda *_: None)
+    r = report["results"][0]
+    assert r["passed"] == 20 and r["tokens"] == 300
+    assert sorted(m["passed"] for m in r["member_scores"].values()) == [13, 13, 14]
+    md = bench.markdown(report)
+    assert "Combining gained" in md and "(one run)" in md

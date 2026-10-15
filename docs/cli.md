@@ -936,8 +936,9 @@ options:
 
 ```text
 usage: rt bench run [-h] [--task TASK] [--solo SOLO] [--team TEAM]
-                    [--mode {quick,full}] [--review {low,mid,high}]
-                    [--minutes MINUTES] [--out OUT] [--seed SEED]
+                    [--vote VOTE] [--mode {quick,full}]
+                    [--review {low,mid,high}] [--minutes MINUTES] [--out OUT]
+                    [--seed SEED]
 
 options:
   -h, --help            show this help message and exit
@@ -945,6 +946,9 @@ options:
   --solo SOLO           an AI alone: claude, codex, claude:high,
                         codex:gpt-6.1-sol:xhigh (repeatable)
   --team TEAM           a team, comma separated: claude,codex (repeatable)
+  --vote VOTE           quiz tasks: one AI answers several times on its own
+                        and the most common answer wins, e.g.
+                        codex:gpt-6.1-sol:low*3 (repeatable)
   --mode {quick,full}   how the team plans (default quick)
   --review {low,mid,high}
                         how carefully the team checks itself
