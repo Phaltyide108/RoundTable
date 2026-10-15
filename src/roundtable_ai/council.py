@@ -239,10 +239,14 @@ def command(row, prompt: str, cwd: Path) -> tuple[list[str], dict[str, str]]:
 
     app, model = row["app"], row["model"]
     effort = launch._effort(row)
+    offline = os.environ.get("RT_COUNCIL_OFFLINE") == "1"      # benchmarks of pure reasoning: no tools at all
     if app == "claude-code":
         cmd = [launch._exe("claude"), "-p", prompt, "--output-format", "stream-json", "--verbose", "--model", model]
         if effort:
             cmd += ["--effort", effort]
+        if offline:
+            return cmd + ["--permission-mode", "default", "--disallowedTools",
+                          NO_EDITS + ",Bash,WebSearch,WebFetch,Read,Glob,Grep,Task,TodoWrite", "--strict-mcp-config"], {}
         return cmd + ["--permission-mode", "default", "--allowedTools", ",".join(READ_TOOLS), "--disallowedTools", NO_EDITS,
                       "--strict-mcp-config"], {}
     if app == "codex-cli":
@@ -254,6 +258,8 @@ def command(row, prompt: str, cwd: Path) -> tuple[list[str], dict[str, str]]:
         cmd = [launch._exe("opencode"), "run", "--format", "json", "--dir", str(cwd), "-m", model]
         if effort:
             cmd += ["--variant", effort]
+        if offline:
+            return cmd + [prompt], {"OPENCODE_PERMISSION": json.dumps({"edit": "deny", "webfetch": "deny", "bash": "deny"})}
         perms = {"edit": "deny", "webfetch": "allow",
                  "bash": {"*": "deny", "git log*": "allow", "git show*": "allow", "git diff*": "allow", "git status*": "allow", "ls*": "allow",
                           "python3 -c*": "allow", "python -c*": "allow"}}
@@ -384,6 +390,8 @@ def run_member(home: Path, row, prompt: str, cwd: Path, *, what: str, minutes: i
 # ---------------------------------------------------------------- prompts
 
 def _project_line(cwd: Path) -> str:
+    if os.environ.get("RT_COUNCIL_OFFLINE") == "1":
+        return "Use no tools (no code, no web search, no files): reason it out yourself."
     return (f"You are in the project folder {cwd}. You may read any file in it, use git log/show/diff to look at history, and run "
             "short `python3 -c` computations to check facts and numbers, but change nothing: no edits, no commits, no files written.")
 
@@ -427,7 +435,8 @@ def _dispute_note(answers: list[tuple[str, str]], who: str) -> str:
     if not items:
         return ""
     return (f"The answers disagree on item{'s' if len(items) > 1 else ''} {', '.join(items)}. {who} work out each of these again from scratch, "
-            "step by step, and decide on the merits, not by which answer seems better overall. When an item can be computed, compute it with python3 -c.")
+            "step by step, and decide on the merits, not by which answer seems better overall."
+            + (" When an item can be computed, compute it with python3 -c." if os.environ.get("RT_COUNCIL_OFFLINE") != "1" else ""))
 
 
 def rank_prompt(c, answers: list[tuple[str, str]]) -> str:

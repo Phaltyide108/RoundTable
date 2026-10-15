@@ -381,3 +381,15 @@ def test_numbered_answers_point_out_where_they_disagree():
     c = {"question": "q", "workdir": "/tmp", "context": ""}
     assert "disagree on item 4" in council.rank_prompt(c, [a, b])
     assert "disagree on item 4" in council.final_prompt(c, [a, b], ["r"], "A")
+
+
+def test_offline_council_runs_use_no_tools(monkeypatch, tmp_path):
+    monkeypatch.setenv("RT_COUNCIL_OFFLINE", "1")
+    monkeypatch.setattr(council.launch if hasattr(council, "launch") else __import__("roundtable_ai.launch", fromlist=["x"]), "_exe", lambda name: name, raising=False)
+    from roundtable_ai import launch
+    monkeypatch.setattr(launch, "_exe", lambda name: name)
+    cmd, _env = council.command({"handle": "h", "app": "claude-code", "model": "claude-haiku-5-5", "effort": "low"}, "q", tmp_path)
+    assert "--allowedTools" not in cmd and "WebSearch" in cmd[cmd.index("--disallowedTools") + 1] and "Bash" in cmd[cmd.index("--disallowedTools") + 1]
+    _cmd, env = council.command({"handle": "o", "app": "opencode", "model": "opencode/big-pickle", "effort": None}, "q", tmp_path)
+    assert json.loads(env["OPENCODE_PERMISSION"]) == {"edit": "deny", "webfetch": "deny", "bash": "deny"}
+    assert "no tools" in council._project_line(tmp_path)

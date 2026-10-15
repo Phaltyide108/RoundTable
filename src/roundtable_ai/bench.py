@@ -147,7 +147,8 @@ def meta(task: str) -> dict[str, Any]:
     except (OSError, ValueError):
         data = {}
     return {"module": data.get("module") or f"{task}.py", "forbid": list(data.get("forbid") or []),
-            "kind": data.get("kind") or "python", "checks": list(data.get("checks") or [])}
+            "kind": data.get("kind") or "python", "checks": list(data.get("checks") or []),
+            "offline": bool(data.get("offline")), "working": bool(data.get("working"))}
 
 
 def forbidden_imports(task: str, folder: Path) -> list[str]:
@@ -226,6 +227,11 @@ def quiz_questions(task: str) -> list[dict[str, Any]]:
 
 def quiz_prompt(task: str) -> str:
     qs = quiz_questions(task)
+    if meta(task)["working"]:
+        return (f"Solve all {len(qs)} problems below. Each answer is an integer from 0 to 999. Use no tools: no code, no web search, no files; "
+                "reason it out yourself, as carefully as you can. Show as much working as you need, then finish with a section that starts "
+                "with the line FINAL ANSWERS followed by exactly one line per problem: `<number>: <integer>`.\n\n"
+                + "\n\n".join(f"Problem {i}. {q['q']}" for i, q in enumerate(qs, 1)))
     return (f"Answer all {len(qs)} questions below. Think carefully, but write no working: reply with exactly one line per question, "
             "in the form `<number>: <answer>` (a number, a fraction in lowest terms like 2/9, or one word), and nothing else.\n\n"
             + "\n".join(f"{i}. {q['q']}" for i, q in enumerate(qs, 1)))
@@ -240,7 +246,10 @@ def _norm_answer(text: str) -> str:
 def score_quiz(task: str, text: str) -> dict[str, Any]:
     qs = quiz_questions(task)
     got: dict[int, str] = {}
-    for line in str(text or "").splitlines():
+    text = str(text or "")
+    if "FINAL ANSWERS" in text:
+        text = text.rsplit("FINAL ANSWERS", 1)[1]
+    for line in text.splitlines():
         m = re.match(r"^\s*\**\s*(\d+)\s*[:.)]\s*(.+?)\s*$", line)
         if m and 1 <= int(m.group(1)) <= len(qs) and int(m.group(1)) not in got:
             got[int(m.group(1))] = m.group(2)
@@ -258,6 +267,8 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
     folder.mkdir(parents=True, exist_ok=True)
     prompt = quiz_prompt(task)
     started = time.time()
+    if meta(task)["offline"]:
+        os.environ["RT_COUNCIL_OFFLINE"] = "1"       # no web search, no code, no files: pure reasoning, the same for everyone
     if contender.kind == "solo":
         m = contender.members[0]
         row = {"handle": _handle_for(m, set()), "app": m.app, "model": m.model, "effort": m.effort}
@@ -273,6 +284,7 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
             dispatch.call("seat.add", {"handle": h, "model": m.model, "app": m.app, "roles": "plan,review", "worktree": False}, home=home, as_human=True, client="bench")
             if m.effort:
                 dispatch.call("seat.set", {"handle": h, "effort": m.effort}, home=home, as_human=True, client="bench")
+        dispatch.call("admin.config_set", {"key": "council.max_minutes", "value": str(int(minutes))}, home=home, as_human=True, client="bench")
         os.environ["RT_COUNCIL_INLINE"] = "1"
         try:
             cid = dispatch.call("council.ask", {"question": prompt}, home=home, as_human=True, client="bench").data["id"]
@@ -283,6 +295,7 @@ def run_quiz(task: str, contender: "Contender", folder: Path, minutes: float, lo
         for p in d["parts"]:
             if p["stage"] == "answer" and p["text"]:
                 (folder / f"answer-{p['seat']}.txt").write_text(p["text"], encoding="utf-8")
+    os.environ.pop("RT_COUNCIL_OFFLINE", None)
     (folder / "answers.txt").write_text(text or "", encoding="utf-8")
     seconds = time.time() - started
     log(f"  answered in {seconds / 60:.1f} min")

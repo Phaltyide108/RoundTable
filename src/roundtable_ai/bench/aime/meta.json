@@ -1,0 +1,6 @@
+{
+ "kind": "quiz",
+ "offline": true,
+ "working": true,
+ "source": "AIME 2025 I and II (https://huggingface.co/datasets/opencompass/AIME2025)"
+}
