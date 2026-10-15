@@ -40,7 +40,7 @@ from .registry import HUMAN, Param, Result, op
 RUNNABLE = ("claude-code", "codex-cli", "opencode")
 LABELS = "ABCDEFGH"
 READ_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "Bash(git log *)", "Bash(git show *)", "Bash(git diff *)",
-              "Bash(git status *)", "Bash(ls *)"]
+              "Bash(git status *)", "Bash(ls *)", "Bash(python3 -c *)", "Bash(python -c *)"]   # python -c: to compute, not to change files
 NO_EDITS = "Edit,Write,MultiEdit,NotebookEdit"
 ANSWER_WORDS = 600
 FINAL = ("done", "failed", "cancelled")
@@ -255,7 +255,8 @@ def command(row, prompt: str, cwd: Path) -> tuple[list[str], dict[str, str]]:
         if effort:
             cmd += ["--variant", effort]
         perms = {"edit": "deny", "webfetch": "allow",
-                 "bash": {"*": "deny", "git log*": "allow", "git show*": "allow", "git diff*": "allow", "git status*": "allow", "ls*": "allow"}}
+                 "bash": {"*": "deny", "git log*": "allow", "git show*": "allow", "git diff*": "allow", "git status*": "allow", "ls*": "allow",
+                          "python3 -c*": "allow", "python -c*": "allow"}}
         return cmd + [prompt], {"OPENCODE_PERMISSION": json.dumps(perms)}
     raise RTError(INVALID, f"Roundtable can't run {app} by itself")
 
@@ -383,8 +384,8 @@ def run_member(home: Path, row, prompt: str, cwd: Path, *, what: str, minutes: i
 # ---------------------------------------------------------------- prompts
 
 def _project_line(cwd: Path) -> str:
-    return (f"You are in the project folder {cwd}. You may read any file in it and use git log/show/diff to look at history, "
-            "but change nothing: no edits, no commits.")
+    return (f"You are in the project folder {cwd}. You may read any file in it, use git log/show/diff to look at history, and run "
+            "short `python3 -c` computations to check facts and numbers, but change nothing: no edits, no commits, no files written.")
 
 
 def answer_prompt(row, c, n: int) -> str:
@@ -426,7 +427,7 @@ def _dispute_note(answers: list[tuple[str, str]], who: str) -> str:
     if not items:
         return ""
     return (f"The answers disagree on item{'s' if len(items) > 1 else ''} {', '.join(items)}. {who} work out each of these again from scratch, "
-            "step by step, and decide on the merits, not by which answer seems better overall.")
+            "step by step, and decide on the merits, not by which answer seems better overall. When an item can be computed, compute it with python3 -c.")
 
 
 def rank_prompt(c, answers: list[tuple[str, str]]) -> str:
